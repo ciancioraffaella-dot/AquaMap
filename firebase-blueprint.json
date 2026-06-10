@@ -1,0 +1,60 @@
+{
+  "entities": {
+    "userdefined_fountain": {
+      "title": "User Defined Fountain",
+      "description": "A drinking fountain submitted by the community",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "address": { "type": "string" },
+        "status": { "type": "string" },
+        "waterType": { "type": "string" },
+        "addedBy": { "type": "string" },
+        "rating": { "type": "number" },
+        "photos": { "type": "array" },
+        "reports": { "type": "array" },
+        "createdAt": { "type": "string" },
+        "city": { "type": "string" },
+        "waterFlowRate": { "type": "string" },
+        "hasFilter": { "type": "boolean" }
+      },
+      "required": ["id", "name", "lat", "lng", "address", "status", "waterType"]
+    },
+    "aquamap_fountain": {
+      "title": "AquaMap Global Fountain",
+      "description": "A drinking fountain imported and cached from OSM and global sources",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "address": { "type": "string" },
+        "status": { "type": "string" },
+        "waterType": { "type": "string" },
+        "addedBy": { "type": "string" },
+        "rating": { "type": "number" },
+        "photos": { "type": "array" },
+        "reports": { "type": "array" },
+        "createdAt": { "type": "string" },
+        "city": { "type": "string" }
+      },
+      "required": ["id", "name", "lat", "lng", "address", "status", "waterType"]
+    }
+  },
+  "firestore": {
+    "/userdefined_fountains/{fountainId}": {
+      "schema": "userdefined_fountain",
+      "description": "Fountains created by players/users of the app"
+    },
+    "/aquamap/{fountainId}": {
+      "schema": "aquamap_fountain",
+      "description": "Global drinking fountains cached from OpenStreetMap"
+    }
+  }
+}
