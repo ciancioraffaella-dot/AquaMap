@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Fountain, FountainFilter, FountainStatus, WaterType } from '../types';
 import { CITIES } from '../data/seedData';
-import { Search, Filter, Droplet, Star, MapPin, Eye, Compass, ThumbsUp } from 'lucide-react';
+import { Search, Filter, Droplet, Star, MapPin, Eye, Compass, ThumbsUp, RefreshCw } from 'lucide-react';
 
 interface FountainListProps {
   fountains: Fountain[];
@@ -11,6 +11,7 @@ interface FountainListProps {
   onSelectFountain: (id: string | null) => void;
   userLocation: { lat: number; lng: number } | null;
   onSelectCity: (cityValue: string) => void;
+  onRefreshOsm?: () => Promise<void>;
 }
 
 // Haversine formula to compute distance in meters
@@ -44,8 +45,20 @@ export default function FountainList({
   onSelectFountain,
   userLocation,
   onSelectCity,
+  onRefreshOsm,
 }: FountainListProps) {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSyncOsm = async () => {
+    if (!onRefreshOsm || isSyncing) return;
+    setIsSyncing(true);
+    try {
+      await onRefreshOsm();
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Status badges mapping
   const getStatusBadge = (status: FountainStatus) => {
@@ -146,7 +159,7 @@ export default function FountainList({
   return (
     <div className="flex flex-col h-full bg-natural-bg select-none">
       {/* Brand Header */}
-      <div className="p-4 bg-white border-b border-natural-border flex items-center justify-between shrink-0">
+      <div className="p-4 bg-white border-b border-natural-border flex items-center justify-between shrink-0 font-sans">
         <div className="flex items-center gap-2.5">
           <div className="flex items-center justify-center w-8 h-8 rounded-full bg-brand text-white shadow-sm">
             <Droplet className="w-4 h-4 fill-white text-white" />
@@ -158,6 +171,21 @@ export default function FountainList({
             <p className="text-[10px] text-natural-muted font-medium">Mappa Globale delle Fontanelle</p>
           </div>
         </div>
+
+        {onRefreshOsm && (
+          <button
+            onClick={handleSyncOsm}
+            disabled={isSyncing}
+            className={`p-2 rounded-xl border border-natural-border text-natural-muted hover:text-brand hover:border-brand-hover/40 bg-white hover:bg-brand-light/30 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-bold ${
+              isSyncing ? 'opacity-85 pointer-events-none' : ''
+            }`}
+            title="Sincronizza fontanelle da OpenStreetMap (OSM) su Supabase"
+            id="btn-sync-osm"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-brand' : ''}`} />
+            <span>{isSyncing ? 'Sincronizzazione...' : 'Sincronizza OSM'}</span>
+          </button>
+        )}
       </div>
 
       {/* Primary Search Controls */}

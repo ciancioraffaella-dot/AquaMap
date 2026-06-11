@@ -105,13 +105,10 @@ export default function FountainMap({
       setAddressLoading(true);
       let addressStr = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
 
-      // Try client-side reverse geocoding via OpenStreetMap free Nominatim API.
+      // Try server-side reverse geocoding via our secure proxy API.
       // Safe to try, with robust fallback if network fails or offline.
       try {
-        const response = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=it`,
-          { headers: { 'User-Agent': 'MappaFontanelleApp' } }
-        );
+        const response = await fetch(`/api/reverse-geocode?lat=${lat}&lng=${lng}`);
         if (response.ok) {
           const data = await response.json();
           if (data && data.display_name) {

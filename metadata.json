@@ -1,6 +1,6 @@
 {
-  "name": "Remix: Mappa Fontanelle",
-  "description": "Un\u0027applicazione moderna, intuitiva e partecipativa per mappare, segnalare e gestire le fontanelle pubbliche con localizzazione GPS, caricamento di foto in tempo reale e segnalazioni di malfunzionamento dello stato dell\u0027acqua.",
+  "name": "AquaMap",
+  "description": "Mappa interattiva delle fontanelle pubbliche OpenStreetMap e segnalazioni degli utenti.",
   "requestFramePermissions": [
     "geolocation"
   ],

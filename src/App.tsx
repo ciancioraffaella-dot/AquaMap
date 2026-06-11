@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import aquamapData from '../aquamap.json';
 import FountainMap from './components/FountainMap';
 import FountainList from './components/FountainList';
 import FountainDetail from './components/FountainDetail';
@@ -9,17 +8,29 @@ import { CITIES } from './data/seedData';
 import { Fountain, FountainFilter, FountainStatus, WaterType, Report } from './types';
 import { Map, List, Droplet, Plus, Compass, Info, Heart, HelpCircle, X } from 'lucide-react';
 
-import { collection, query, where, getDocs, doc, setDoc, limit } from 'firebase/firestore';
-import { db } from './lib/firebase';
-
 const sanitizeId = (id: any): string => {
   if (!id) return `f-${Math.random().toString(36).substring(2, 9)}`;
   return String(id).replace(/\//g, '-');
 };
 
 export default function App() {
-  const [fountains, setFountains] = useState<Fountain[]>([]);
+  const [fountains, setFountains] = useState<Fountain[]>(() => {
+    try {
+      const saved = localStorage.getItem('userdefined_fountains_local');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [selectedFountainId, setSelectedFountainId] = useState<string | null>(null);
+  const [fountainUpdates, setFountainUpdates] = useState<Record<string, { status: FountainStatus; rating: number; photos: string[]; reports: Report[] }>>(() => {
+    try {
+      const saved = localStorage.getItem('osm_fountain_updates_local');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
   const [osmFountains, setOsmFountains] = useState<Fountain[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [filters, setFilters] = useState<FountainFilter>({
@@ -87,147 +98,73 @@ export default function App() {
     }
   }, [toastMessage]);
 
-  // Sync / Seed initial OSM fountains to Firebase 'aquamap' collection if empty
+  // Persist userdefined fountains to localStorage when they change
   useEffect(() => {
-    const tempOsmFountains = (aquamapData as any).features.map((feature: any) => {
-      const lat = feature.geometry.coordinates[1];
-      const lng = feature.geometry.coordinates[0];
-      const cacheKey = `${lat.toFixed(5)},${lng.toFixed(5)}`;
-      const address = addressCache[cacheKey] || feature.properties.address || feature.properties['addr:street'] || 'Indirizzo non presente';
-      const safeId = sanitizeId(feature.id);
+    try {
+      localStorage.setItem('userdefined_fountains_local', JSON.stringify(fountains));
+    } catch (e) {
+      console.error('Failed to save fountains locally:', e);
+    }
+  }, [fountains]);
 
-      return {
-        id: safeId,
-        name: feature.properties.name || feature.properties.description || 'Fontanella',
-        lat: lat,
-        lng: lng,
-        address: address,
-        status: 'working' as FountainStatus,
-        waterType: 'potabile' as WaterType,
-        description: feature.properties.description || 'Dati da OSM',
-        addedBy: 'OSM',
-        rating: 3.0,
-        photos: [],
-        reports: [],
-        createdAt: new Date().toISOString(),
-        city: feature.properties.city || 'Milano',
-        isOsm: true
-      };
-    });
+  // Persist custom updates to localStorage when they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('osm_fountain_updates_local', JSON.stringify(fountainUpdates));
+    } catch (e) {
+      console.error('Failed to save updates locally:', e);
+    }
+  }, [fountainUpdates]);
 
-    if (tempOsmFountains.length === 0) return;
-
-    const seedFirebaseIfNeeded = async () => {
+  // Load all fountains from Supabase via our Express Backend on mount
+  useEffect(() => {
+    const loadFromSupabase = async () => {
       try {
-        const snap = await getDocs(query(collection(db, 'aquamap'), limit(1)));
-        if (snap.empty) {
-          console.log("Seeding global OSM fountains to Firestore 'aquamap' collection...");
-          for (const item of tempOsmFountains) {
-            await setDoc(doc(db, 'aquamap', item.id), item);
+        const res = await fetch("/api/fountains");
+        if (res.ok) {
+          const fetched: Fountain[] = await res.json();
+          if (fetched && fetched.length > 0) {
+            const osmList = fetched.filter((f) => f.isOsm);
+            const userList = fetched.filter((f) => !f.isOsm);
+            setOsmFountains(osmList);
+            setFountains(userList);
           }
-          console.log("OSM Seeding complete!");
         }
       } catch (err) {
-        console.error("OSM Seeding check error:", err);
+        console.error("Backend Supabase retrieve error:", err);
       }
     };
+    loadFromSupabase();
+  }, []);
 
-    seedFirebaseIfNeeded();
-  }, [addressCache]);
-
-  // Load fountains from Firebase when bounds change
+  // On-demand geocoding for selected fountain to enrich generic or missing address data
   useEffect(() => {
-    if (!currentBounds) return;
+    if (!selectedFountainId) return;
+    const selected = fountains.find((f) => f.id === selectedFountainId) || 
+                     osmFountains.find((f) => f.id === selectedFountainId);
+    if (!selected) return;
 
-    const fetchFountainsByBounds = async () => {
+    const cacheKey = `${selected.lat.toFixed(5)},${selected.lng.toFixed(5)}`;
+    
+    // Only resolve if not already cached and we don't have a structured street address
+    const needsGeocoding = !addressCache[cacheKey] && 
+      (!selected.address || 
+       selected.address === 'Indirizzo non presente' || 
+       selected.address === 'Dati da OpenStreetMap' || 
+       selected.address.startsWith('Lat:'));
+
+    if (!needsGeocoding) return;
+
+    const fetchGeo = async () => {
       try {
-        const { latMin, latMax, lngMin, lngMax } = currentBounds;
-
-        // 1. Fetch userdefined_fountains within latitude bounds
-        const userRef = collection(db, 'userdefined_fountains');
-        const qUser = query(
-          userRef,
-          where('lat', '>=', latMin),
-          where('lat', '<=', latMax)
-        );
-        const userSnap = await getDocs(qUser);
-        const userList: Fountain[] = [];
-        userSnap.forEach((docSnap) => {
-          const data = docSnap.data() as any;
-          if (data.lng >= lngMin && data.lng <= lngMax) {
-            userList.push({
-              ...data,
-              id: docSnap.id,
-              isOsm: false
-            });
-          }
-        });
-
-        // 2. Fetch aquamap within latitude bounds
-        const aquaRef = collection(db, 'aquamap');
-        const qAqua = query(
-          aquaRef,
-          where('lat', '>=', latMin),
-          where('lat', '<=', latMax)
-        );
-        const aquaSnap = await getDocs(qAqua);
-        const aquaList: Fountain[] = [];
-        aquaSnap.forEach((docSnap) => {
-          const data = docSnap.data() as any;
-          if (data.lng >= lngMin && data.lng <= lngMax) {
-            aquaList.push({
-              ...data,
-              id: docSnap.id,
-              isOsm: true
-            });
-          }
-        });
-
-        setFountains(userList);
-        setOsmFountains(aquaList);
-      } catch (err) {
-        console.error("Error fetching fountains from Firebase by bounds:", err);
-      }
-    };
-
-    // Debounce the fetch slightly to prevent excessive network operations
-    const timer = setTimeout(fetchFountainsByBounds, 350);
-    return () => clearTimeout(timer);
-  }, [currentBounds]);
-
-  // Background geocoding worker: resolves at most 1 item every 2 seconds to respect Nominatim TOS
-  useEffect(() => {
-    const featuresToResolve = (aquamapData as any).features.filter((feature: any) => {
-      const lat = feature.geometry.coordinates[1];
-      const lng = feature.geometry.coordinates[0];
-      const cacheKey = `${lat.toFixed(5)},${lng.toFixed(5)}`;
-      return !addressCache[cacheKey];
-    });
-
-    if (featuresToResolve.length === 0) return;
-
-    let index = 0;
-    const interval = setInterval(async () => {
-      if (index >= featuresToResolve.length) {
-        clearInterval(interval);
-        return;
-      }
-
-      const feature = featuresToResolve[index];
-      const lat = feature.geometry.coordinates[1];
-      const lng = feature.geometry.coordinates[0];
-      const cacheKey = `${lat.toFixed(5)},${lng.toFixed(5)}`;
-
-      try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=it`, {
-          headers: { 'User-Agent': 'AquaMapFountainsApp/1.0' }
-        });
+        const url = `/api/reverse-geocode?lat=${selected.lat}&lng=${selected.lng}`;
+        const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
           const cleanAddress = data.display_name
             ? data.display_name.split(',').slice(0, 3).join(',').trim()
-            : `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
-          
+            : `Lat: ${selected.lat.toFixed(5)}, Lng: ${selected.lng.toFixed(5)}`;
+            
           setAddressCache(prev => {
             const next = { ...prev, [cacheKey]: cleanAddress };
             localStorage.setItem('osm_address_cache_v2', JSON.stringify(next));
@@ -235,14 +172,12 @@ export default function App() {
           });
         }
       } catch (err) {
-        console.error('Reverse geocode worker error:', err);
+        console.error('On-demand geocode error:', err);
       }
+    };
 
-      index++;
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [osmFountains.length]);
+    fetchGeo();
+  }, [selectedFountainId, addressCache, fountains, osmFountains]);
 
   // Combine both sources
   const allFountains = [...fountains, ...osmFountains];
@@ -294,7 +229,7 @@ export default function App() {
     }
   };
 
-  // Callback to insert newly registered water fountain to Firebase userdefined_fountains
+  // Callback to insert newly registered water fountain
   const handleSaveFountain = async (data: {
     name: string;
     description: string;
@@ -328,18 +263,30 @@ export default function App() {
       hasFilter: data.hasFilter,
     };
 
-    try {
-      await setDoc(doc(db, 'userdefined_fountains', newFountain.id), newFountain);
-      setFountains((prev) => [...prev, newFountain]);
-    } catch (err) {
-      console.error("Error saving userdefined fountain:", err);
-    }
-
+    // Client-side optimistic update
+    setFountains((prev) => [...prev, newFountain]);
     setAddCoords(null);
     setSelectedFountainId(newFountain.id);
+
+    // Persist real-time to Supabase
+    try {
+      const res = await fetch("/api/fountains", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newFountain),
+      });
+      if (res.ok) {
+        const savedFountain = await res.json();
+        // swap state record with confirmed server-supplied db structure
+        setFountains((prev) => prev.map(f => f.id === newFountain.id ? savedFountain : f));
+        setToastMessage("Fontanella salvata con successo su Supabase!");
+      }
+    } catch (err) {
+      console.warn("Could not save to Supabase. Operating with local localStorage fallback:", err);
+    }
   };
 
-  // Callback to submit a community report and sync with Firebase
+  // Callback to submit a community report
   const handleAddReport = async (
     fountainId: string,
     type: 'status_change' | 'comment' | 'photo' | 'report_broken',
@@ -349,54 +296,126 @@ export default function App() {
     photo: string | null
   ) => {
     const isUserDef = fountains.some((f) => f.id === fountainId);
-    const targetColl = isUserDef ? 'userdefined_fountains' : 'aquamap';
+    
+    // 1. Core local storage and reactive client updates (Optimistic Update)
+    if (isUserDef) {
+      setFountains((prev) =>
+        prev.map((f) => {
+          if (f.id !== fountainId) return f;
 
-    const currentList = isUserDef ? fountains : osmFountains;
-    const f = currentList.find((item) => item.id === fountainId);
-    if (!f) return;
+          const newReport: Report = {
+            id: `r-${Date.now()}`,
+            type,
+            comment,
+            statusBefore: f.status,
+            statusAfter,
+            photoUrl: photo || undefined,
+            user: 'Tu (Esploratore)',
+            userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+            createdAt: new Date().toISOString(),
+            rating,
+          };
 
-    const newReport: Report = {
-      id: `r-${Date.now()}`,
-      type,
-      comment,
-      statusBefore: f.status,
-      statusAfter,
-      photoUrl: photo || undefined,
-      user: 'Tu (Esploratore)',
-      userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-      createdAt: new Date().toISOString(),
-      rating,
-    };
+          const newReports = [newReport, ...f.reports];
+          const ratedLogs = newReports.filter((r) => r.rating !== undefined);
+          const aggregatedRating =
+            ratedLogs.length > 0
+              ? ratedLogs.reduce((acc, curr) => acc + (curr.rating || 0), 0) / ratedLogs.length
+              : f.rating;
+          const updatedPhotos = photo ? [photo, ...f.photos] : f.photos;
 
-    const newReports = [newReport, ...f.reports];
+          return {
+            ...f,
+            status: statusAfter,
+            rating: Number(aggregatedRating.toFixed(1)),
+            photos: updatedPhotos,
+            reports: newReports,
+          };
+        })
+      );
+    } else {
+      const f = osmFountains.find((item) => item.id === fountainId);
+      if (f) {
+        const newReport: Report = {
+          id: `r-${Date.now()}`,
+          type,
+          comment,
+          statusBefore: f.status,
+          statusAfter,
+          photoUrl: photo || undefined,
+          user: 'Tu (Esploratore)',
+          userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+          createdAt: new Date().toISOString(),
+          rating,
+        };
 
-    // Recalculate average stars rating
-    const ratedLogs = newReports.filter((r) => r.rating !== undefined);
-    const aggregatedRating =
-      ratedLogs.length > 0
-        ? ratedLogs.reduce((acc, curr) => acc + (curr.rating || 0), 0) / ratedLogs.length
-        : f.rating;
+        const newReports = [newReport, ...f.reports];
+        const ratedLogs = newReports.filter((r) => r.rating !== undefined);
+        const aggregatedRating =
+          ratedLogs.length > 0
+            ? ratedLogs.reduce((acc, curr) => acc + (curr.rating || 0), 0) / ratedLogs.length
+            : f.rating;
+        const updatedPhotos = photo ? [photo, ...f.photos] : f.photos;
 
-    // Append photo to fountain images gallery
-    const updatedPhotos = photo ? [photo, ...f.photos] : f.photos;
+        setFountainUpdates((prev) => ({
+          ...prev,
+          [fountainId]: {
+            status: statusAfter,
+            rating: Number(aggregatedRating.toFixed(1)),
+            photos: updatedPhotos,
+            reports: newReports,
+          },
+        }));
+      }
+    }
 
-    const updatedFountain = {
-      ...f,
-      status: statusAfter,
-      rating: Number(aggregatedRating.toFixed(1)),
-      photos: updatedPhotos,
-      reports: newReports,
-    };
-
+    // 2. Sync to Supabase Table 'fontanelle' via API
     try {
-      await setDoc(doc(db, targetColl, fountainId), updatedFountain);
-      if (isUserDef) {
-        setFountains((prev) => prev.map((item) => (item.id === fountainId ? updatedFountain : item)));
-      } else {
-        setOsmFountains((prev) => prev.map((item) => (item.id === fountainId ? updatedFountain : item)));
+      const reportPayload = { type, comment, statusAfter, rating, photo };
+      const res = await fetch(`/api/fountains/${fountainId}/reports`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(reportPayload)
+      });
+      if (res.ok) {
+        const syncedFountain = await res.json();
+        if (syncedFountain.isOsm) {
+          setOsmFountains((prev) => prev.map((item) => (item.id === fountainId ? syncedFountain : item)));
+        } else {
+          setFountains((prev) => prev.map((item) => (item.id === fountainId ? syncedFountain : item)));
+        }
+        setToastMessage("Segnalazione salvata con successo su Supabase!");
       }
     } catch (err) {
-      console.error("Error saving report on Firebase:", err);
+      console.warn("Could not save report to Supabase. Saved only in local memory:", err);
+    }
+  };
+
+  const handleRefreshOsm = async () => {
+    try {
+      setToastMessage("Inizio della sincronizzazione con OpenStreetMap... Potrebbe richiedere 10-15 secondi.");
+      const res = await fetch("/api/fountains/refresh-osm", {
+        method: "POST",
+      });
+      if (res.ok) {
+        setToastMessage("Sincronizzazione completata con successo! Caricamento delle fontanelle...");
+        const loadRes = await fetch("/api/fountains");
+        if (loadRes.ok) {
+          const fetched: Fountain[] = await loadRes.json();
+          if (fetched && fetched.length > 0) {
+            const osmList = fetched.filter((f) => f.isOsm);
+            const userList = fetched.filter((f) => !f.isOsm);
+            setOsmFountains(osmList);
+            setFountains(userList);
+          }
+        }
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setToastMessage(`Errore di sincronizzazione: ${errData.error || res.statusText}`);
+      }
+    } catch (err: any) {
+      console.error("OSM sync trigger error:", err);
+      setToastMessage("Errore di connessione durante la sincronizzazione con OSM.");
     }
   };
 
@@ -436,6 +455,7 @@ export default function App() {
             onSelectFountain={setSelectedFountainId}
             userLocation={userLocation}
             onSelectCity={handleSelectCity}
+            onRefreshOsm={handleRefreshOsm}
           />
         </div>
 
