@@ -356,7 +356,20 @@ export const CITIES = [
   { name: 'Tutte le città', value: 'all' },
   { name: 'Milano', value: 'Milano', lat: 45.4642, lng: 9.1900, zoom: 13 },
   { name: 'Roma', value: 'Roma', lat: 41.8902, lng: 12.4922, zoom: 13 },
+  { name: 'Torino', value: 'Torino', lat: 45.0703, lng: 7.6869, zoom: 13 },
+  { name: 'Napoli', value: 'Napoli', lat: 40.8518, lng: 14.2681, zoom: 13 },
+  { name: 'Firenze', value: 'Firenze', lat: 43.7696, lng: 11.2558, zoom: 13 },
+  { name: 'Venezia', value: 'Venezia', lat: 45.4408, lng: 12.3155, zoom: 13 },
   { name: 'Parigi', value: 'Parigi', lat: 48.8566, lng: 2.3522, zoom: 13 },
   { name: 'Londra', value: 'Londra', lat: 51.5074, lng: -0.1278, zoom: 13 },
-  { name: 'New York', value: 'New York', lat: 40.7128, lng: -74.0060, zoom: 13 }
+  { name: 'Berlino', value: 'Berlino', lat: 52.5200, lng: 13.4050, zoom: 13 },
+  { name: 'Madrid', value: 'Madrid', lat: 40.4168, lng: -3.7038, zoom: 13 },
+  { name: 'Barcellona', value: 'Barcellona', lat: 41.3851, lng: 2.1734, zoom: 13 },
+  { name: 'Vienna', value: 'Vienna', lat: 48.2082, lng: 16.3738, zoom: 13 },
+  { name: 'Amsterdam', value: 'Amsterdam', lat: 52.3676, lng: 4.9041, zoom: 13 },
+  { name: 'Bruxelles', value: 'Bruxelles', lat: 50.8503, lng: 4.3517, zoom: 13 },
+  { name: 'Monaco di Baviera', value: 'Monaco di Baviera', lat: 48.1351, lng: 11.5820, zoom: 13 },
+  { name: 'Lisbona', value: 'Lisbona', lat: 38.7223, lng: -9.1393, zoom: 13 },
+  { name: 'Atene', value: 'Atene', lat: 37.9838, lng: 23.7275, zoom: 13 },
+  { name: 'Dublino', value: 'Dublino', lat: 53.3498, lng: -6.2603, zoom: 13 }
 ];

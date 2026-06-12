@@ -185,62 +185,155 @@ CREATE POLICY "Allow public all to Utente" ON public.fontanelle_utente FOR ALL U
 `);
 }
 
-async function syncOsmToSupabase() {
-  console.log("Starting active OSM query synchronization for global drinking fountains...");
-  
-  const areas = [
-    { name: 'Milano', query: 'relation["name"="Milano"]["admin_level"="8"]' },
-    { name: 'Roma', query: 'relation["name"="Roma"]["admin_level"="8"]' },
-    { name: 'Paris', query: 'relation["name"="Paris"]["admin_level"="6"]' },
-    { name: 'London', query: 'relation["name"="London"]["admin_level"="8"]' },
-    { name: 'New York', query: 'relation["name"="New York City"]["admin_level"="5"]' }
+// Helper to find nearest European city and guess beautiful address
+function findNearestEuropeanCityServer(lat: number, lng: number): { city: string; address: string } {
+  const referenceCities = [
+    { name: 'Milano', lat: 45.4642, lng: 9.1900 },
+    { name: 'Roma', lat: 41.8902, lng: 12.4922 },
+    { name: 'Torino', lat: 45.0703, lng: 7.6869 },
+    { name: 'Napoli', lat: 40.8518, lng: 14.2681 },
+    { name: 'Firenze', lat: 43.7696, lng: 11.2558 },
+    { name: 'Venezia', lat: 45.4408, lng: 12.3155 },
+    { name: 'Parigi', lat: 48.8566, lng: 2.3522 },
+    { name: 'Londra', lat: 51.5074, lng: -0.1278 },
+    { name: 'Berlino', lat: 52.5200, lng: 13.4050 },
+    { name: 'Madrid', lat: 40.4168, lng: -3.7038 },
+    { name: 'Barcellona', lat: 41.3851, lng: 2.1734 },
+    { name: 'Vienna', lat: 48.2082, lng: 16.3738 },
+    { name: 'Amsterdam', lat: 52.3676, lng: 4.9041 },
+    { name: 'Bruxelles', lat: 50.8503, lng: 4.3517 },
+    { name: 'Monaco di Baviera', lat: 48.1351, lng: 11.5820 },
+    { name: 'Lisbona', lat: 38.7223, lng: -9.1393 },
+    { name: 'Atene', lat: 37.9838, lng: 23.7275 },
+    { name: 'Dublino', lat: 53.3498, lng: -6.2603 }
   ];
+
+  let minDistance = Infinity;
+  let nearestCityName = 'Altra';
+
+  for (const c of referenceCities) {
+    const dist = Math.sqrt(Math.pow(lat - c.lat, 2) + Math.pow(lng - c.lng, 2));
+    if (dist < minDistance) {
+      minDistance = dist;
+      nearestCityName = c.name;
+    }
+  }
+
+  if (minDistance < 0.45) {
+    return { 
+      city: nearestCityName, 
+      address: `Zona centrale di ${nearestCityName}, Europa` 
+    };
+  }
+
+  return { 
+    city: 'Altra', 
+    address: `Europa centrale (Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)})` 
+  };
+}
+
+async function syncOsmToSupabase() {
+  console.log("Starting active OSM query synchronization for Europe-wide drinking fountains...");
+  
+  const queryStr = `[out:json][timeout:120];
+(
+  area["name"="Milano"]["admin_level"="8"]->.a;
+  area["name"="Roma"]["admin_level"="8"]->.b;
+  area["name"="Torino"]["admin_level"="8"]->.c;
+  area["name"="Napoli"]["admin_level"="8"]->.d;
+  area["name"="Firenze"]["admin_level"="8"]->.e;
+  area["name"="Venezia"]["admin_level"="8"]->.f;
+  area["name"="Paris"]["admin_level"="6"]->.g;
+  area["name"="London"]["admin_level"="8"]->.h;
+  area["name"="Berlin"]["admin_level"="4"]->.i;
+  area["name"="Madrid"]["admin_level"="8"]->.j;
+  area["name"="Barcelona"]["admin_level"="8"]->.k;
+  area["name"="Wien"]["admin_level"="8"]->.l;
+  area["name"="Amsterdam"]["admin_level"="8"]->.m;
+  area["name"="Bruxelles - Brussel"]["admin_level"="8"]->.n;
+  area["name"="München"]["admin_level"="8"]->.o;
+  area["name"="Lisboa"]["admin_level"="8"]->.p;
+  area["name"="Athens"]["admin_level"="8"]->.q;
+  area["name"="Dublin"]["admin_level"="8"]->.r;
+);
+(
+  node["amenity"="drinking_water"](area.a);
+  node["amenity"="drinking_water"](area.b);
+  node["amenity"="drinking_water"](area.c);
+  node["amenity"="drinking_water"](area.d);
+  node["amenity"="drinking_water"](area.e);
+  node["amenity"="drinking_water"](area.f);
+  node["amenity"="drinking_water"](area.g);
+  node["amenity"="drinking_water"](area.h);
+  node["amenity"="drinking_water"](area.i);
+  node["amenity"="drinking_water"](area.j);
+  node["amenity"="drinking_water"](area.k);
+  node["amenity"="drinking_water"](area.l);
+  node["amenity"="drinking_water"](area.m);
+  node["amenity"="drinking_water"](area.n);
+  node["amenity"="drinking_water"](area.o);
+  node["amenity"="drinking_water"](area.p);
+  node["amenity"="drinking_water"](area.q);
+  node["amenity"="drinking_water"](area.r);
+);
+out body;`;
 
   const features: any[] = [];
 
-  for (const area of areas) {
-    try {
-      console.log(`Fetching fountains for area: ${area.name}`);
-      const queryStr = `
-        [out:json][timeout:90];
-        ${area.query}->.searchArea;
-        node["amenity"="drinking_water"](area.searchArea);
-        out body;
-      `;
-      const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(queryStr)}`;
-      const res = await fetch(url, {
-        headers: { 'User-Agent': `AquaMapWorldApplication/4.0` }
-      });
-      if (res.ok) {
-        const osmData = await res.json();
-        const elementFeatures = (osmData.elements || [])
-          .filter((el: any) => el.type === 'node')
-          .map((el: any) => ({
+  try {
+    const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(queryStr)}`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': `AquaMapWorldApplication/4.0` }
+    });
+    if (res.ok) {
+      const osmData = await res.json();
+      const elements = osmData.elements || [];
+      const elementFeatures = elements
+        .filter((el: any) => el.type === 'node')
+        .map((el: any) => {
+          const lat = Number(el.lat);
+          const lng = Number(el.lon);
+          const resolved = findNearestEuropeanCityServer(lat, lng);
+
+          let name = el.tags?.name || el.tags?.description;
+          if (!name) {
+            if (el.tags?.operator) name = `Fontanella (${el.tags.operator})`;
+            else name = `Fontanella Potabile ${resolved.city}`;
+          }
+
+          let address = el.tags?.['addr:street'];
+          if (address) {
+            if (el.tags?.['addr:housenumber']) address += `, ${el.tags['addr:housenumber']}`;
+            address += `, ${resolved.city}`;
+          } else {
+            address = resolved.address;
+          }
+
+          return {
             type: "Feature",
             properties: {
               "@id": `node/${el.id}`,
               "amenity": "drinking_water",
-              "name": el.tags?.name || el.tags?.description || `Fontanella a ${area.name}`,
-              "city": area.name,
+              "name": name,
+              "city": resolved.city,
+              "address": address,
               ...el.tags
             },
             geometry: {
               type: "Point",
-              coordinates: [el.lon, el.lat]
+              coordinates: [lng, lat]
             },
             id: `node-${el.id}`
-          }));
-        features.push(...elementFeatures);
-        console.log(`Loaded ${elementFeatures.length} fountains for ${area.name}`);
-      } else {
-        console.error(`Overpass failed for ${area.name} with status ${res.status}`);
-      }
-      
-      // Delay to respect OSM Overpass rate limits
-      await new Promise(resolve => setTimeout(resolve, 3000));
-    } catch (err) {
-      console.error(`Error querying OSM for ${area.name}:`, err);
+          };
+        });
+
+      features.push(...elementFeatures);
+      console.log(`Loaded ${elementFeatures.length} fountains for Europe-wide sync.`);
+    } else {
+      console.error(`Overpass failed with status ${res.status}`);
     }
+  } catch (err) {
+    console.error(`Error querying OSM for Europe:`, err);
   }
 
   if (features.length > 0) {
@@ -255,19 +348,19 @@ async function syncOsmToSupabase() {
         
         return mapToDB({
           id: safeId,
-          name: feature.properties.name || feature.properties.description || "Fontanella",
+          name: feature.properties.name,
           lat: lat,
           lng: lng,
-          address: feature.properties.address || feature.properties['addr:street'] || "Dati da OpenStreetMap",
+          address: feature.properties.address,
           status: "working",
           waterType: "potabile",
-          description: feature.properties.description || "Dati provenienti da OpenStreetMap",
+          description: feature.properties.description || "Infrastruttura idrica registrata da OpenStreetMap",
           addedBy: "OpenStreetMap",
           rating: 3.0,
           photos: [],
           reports: [],
           createdAt: new Date().toISOString(),
-          city: feature.properties.city || areaNameFromFeature(feature) || "Milano",
+          city: feature.properties.city,
           isOsm: true
         });
       });
@@ -292,17 +385,6 @@ async function syncOsmToSupabase() {
   } else {
     console.log("No features resolved during Overpass API sync trigger.");
   }
-}
-
-function areaNameFromFeature(feature: any): string {
-  if (feature.properties.city) return feature.properties.city;
-  const name = feature.properties.name || "";
-  if (name.includes("Milano")) return "Milano";
-  if (name.includes("Roma")) return "Roma";
-  if (name.includes("Paris")) return "Paris";
-  if (name.includes("London")) return "London";
-  if (name.includes("New York")) return "New York";
-  return "Milano";
 }
 
 async function startServer() {
