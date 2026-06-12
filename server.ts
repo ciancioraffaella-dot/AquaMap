@@ -15,8 +15,22 @@ let supabaseClient: any = null;
 export function getSupabase() {
   if (supabaseClient) return supabaseClient;
   
-  const url = process.env.SUPABASE_URL?.trim();
-  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)?.trim();
+  let url: string | undefined = undefined;
+  let key: string | undefined = undefined;
+
+  // Se il codice runna su AI Studio
+  if (typeof process !== "undefined" && process.env && process.env.SUPABASE_URL) {
+    url = process.env.SUPABASE_URL?.trim();
+    key = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)?.trim();
+  } else {
+    // Se il codice runna su GitHub Pages / Vite
+    try {
+      url = (import.meta as any).env?.VITE_SUPABASE_URL?.trim();
+      key = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY?.trim();
+    } catch (e) {
+      // Fallback
+    }
+  }
   
   if (!url || !key) {
     console.warn("Supabase credentials (SUPABASE_URL and SUPABASE_ANON_KEY) are missing in environment variables. Running in localized fallback mode.");
