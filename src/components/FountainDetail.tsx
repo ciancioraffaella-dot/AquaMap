@@ -160,7 +160,7 @@ export default function FountainDetail({ fountain, onClose, onAddReport }: Fount
               <h2 className="text-xl font-serif font-bold text-natural-dark tracking-tight leading-snug">{fountain.name}</h2>
               <p className="text-xs text-natural-muted font-medium flex items-center gap-1.5 mt-1.5">
                 <MapPin className="w-3.5 h-3.5 text-brand shrink-0" />
-                {fountain.address !== 'Indirizzo non presente' ? `${fountain.address}${fountain.city ? `, ${fountain.city}` : ''}` : 'Indirizzo non disponibile'}
+                {fountain.address && fountain.city && fountain.address.toLowerCase().includes(fountain.city.toLowerCase()) ? fountain.address : `${fountain.address || ''}${fountain.city ? `, ${fountain.city}` : ''}`}
               </p>
               <p className="text-xs text-natural-muted font-medium flex items-center gap-1.5 mt-1">
                 <Compass className="w-3.5 h-3.5 text-brand shrink-0" />

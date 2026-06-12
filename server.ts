@@ -474,6 +474,28 @@ async function startServer() {
     }
   });
 
+  // API geocode proxy (cerca una citta o indirizzo qualunque)
+  app.get("/api/geocode", async (req, res) => {
+    try {
+      const { q } = req.query;
+      if (!q) {
+        return res.status(400).json({ error: "Missing query parameter q" });
+      }
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(String(q))}&limit=1&accept-language=it`;
+      const response = await fetch(url, {
+        headers: { 'User-Agent': 'AquaMapWorldApplication/4.0 (ciancio.raffaella@gmail.com)' }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        res.json(data);
+      } else {
+        res.status(response.status).json({ error: `Nominatim status: ${response.status}` });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // GET all fountains (combining OSM and UserDefined structures from Supabase)
   app.get("/api/fountains", async (req, res) => {
     const supabase = getSupabase();

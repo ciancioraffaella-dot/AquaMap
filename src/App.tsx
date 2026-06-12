@@ -177,7 +177,12 @@ export default function App() {
     const needsGeocoding = !addressCache[cacheKey] && 
       (!selected.address || 
        selected.address === 'Indirizzo non presente' || 
+       selected.address === 'Indirizzo non disponibile' || 
        selected.address === 'Dati da OpenStreetMap' || 
+       selected.address === 'N/D' || 
+       selected.address === 'n/d' || 
+       selected.address === 'N.D.' || 
+       selected.address.startsWith('Zona centrale') ||
        selected.address.startsWith('Lat:'));
 
     if (!needsGeocoding) return;
@@ -220,13 +225,36 @@ export default function App() {
       let currentCity = f.city;
       let currentAddress = f.address;
 
-      // If city is placeholder-y, empty, "Altro", "Altra", or missing, associate it beautifully
-      if (!currentCity || currentCity === 'Altro' || currentCity === 'Altra' || currentCity === 'Sconosciuta') {
+      const isPlaceholderCity = !currentCity || 
+                                currentCity === 'Altro' || 
+                                currentCity === 'Altra' || 
+                                currentCity === 'Sconosciuta' ||
+                                currentCity === 'N/D' ||
+                                currentCity === 'n/d' ||
+                                currentCity === 'N.D.';
+
+      const isPlaceholderAddress = !currentAddress || 
+                                  currentAddress === 'Indirizzo non presente' || 
+                                  currentAddress === 'Indirizzo non disponibile' ||
+                                  currentAddress === 'Dati da OpenStreetMap' || 
+                                  currentAddress === 'N/D' ||
+                                  currentAddress === 'n/d' ||
+                                  currentAddress === 'N.D.' ||
+                                  currentAddress === 'Sconosciuta' ||
+                                  currentAddress.startsWith('Lat:');
+
+      // If city is placeholder-y or missing, associate it beautifully using coordinate lookup
+      if (isPlaceholderCity) {
         const resolved = findNearestEuropeanCity(f.lat, f.lng);
         currentCity = resolved.city;
-        if (!currentAddress || currentAddress === 'Indirizzo non presente' || currentAddress === 'Dati da OpenStreetMap' || currentAddress.startsWith('Lat:')) {
+        if (isPlaceholderAddress) {
           currentAddress = resolved.address;
         }
+      }
+
+      // If address is placeholder-y but we have a valid city, create a beautiful fallback address
+      if (isPlaceholderAddress && !isPlaceholderCity && currentCity) {
+        currentAddress = `Zona centrale di ${currentCity}, Italia`;
       }
 
       // Check if we have an on-demand cached precise reverse-geocoded address
@@ -287,43 +315,77 @@ export default function App() {
     ? (!isSearching && visibleFountainsInViewport.length > 200) 
     : false;
 
-  const [zoomToastShown, setZoomToastShown] = useState(false);
-
-  useEffect(() => {
-    if (isZoomedOutTooFar) {
-      if (!zoomToastShown) {
-        setToastMessage("Troppe fontanelle nell'area (più di 200). Zoomma più vicino per visualizzarle!");
-        setZoomToastShown(true);
-      }
-    } else {
-      setZoomToastShown(false);
-    }
-  }, [isZoomedOutTooFar, zoomToastShown]);
-
-  // Auto-center map on search matches to align with user location or searched city/street
+  // Auto-center map on search matches (first matching fountains) OR dynamic OSM Nominatim Geocoding lookup on any city name
   const lastCenteredQueryRef = useRef<string>('');
 
   useEffect(() => {
-    const query = filters.searchQuery.trim().toLowerCase();
+    const query = filters.searchQuery.trim();
     if (query.length < 3) {
       lastCenteredQueryRef.current = '';
       return;
     }
 
-    if (query === lastCenteredQueryRef.current) return;
+    if (query.toLowerCase() === lastCenteredQueryRef.current.toLowerCase()) return;
 
-    if (filteredSearchAllFountains.length > 0) {
-      lastCenteredQueryRef.current = query;
-      // Pan to the first matching search result and zoom in nicely
-      const firstMatch = filteredSearchAllFountains[0];
-      setMapCenter({
-        lat: firstMatch.lat,
-        lng: firstMatch.lng,
-        zoom: filteredSearchAllFountains.length === 1 ? 17 : 14,
-        trigger: Date.now(),
+    // Use debounce timer to prevent hitting rate limits while typing
+    const timer = setTimeout(async () => {
+      // 1. Check if we already have local matching objects in loaded bounds
+      const localMatches = allFountains.filter((f) => {
+        return (
+          f.name.toLowerCase().includes(query.toLowerCase()) ||
+          (f.description && f.description.toLowerCase().includes(query.toLowerCase())) ||
+          f.address.toLowerCase().includes(query.toLowerCase()) ||
+          f.city.toLowerCase().includes(query.toLowerCase())
+        );
       });
-    }
-  }, [filters.searchQuery, filteredSearchAllFountains]);
+
+      if (localMatches.length > 0) {
+        lastCenteredQueryRef.current = query;
+        const firstMatch = localMatches[0];
+        setMapCenter({
+          lat: firstMatch.lat,
+          lng: firstMatch.lng,
+          zoom: localMatches.length === 1 ? 17 : 14,
+          trigger: Date.now(),
+        });
+        return;
+      }
+
+      // 2. Otherwise query Osm Nominatim API to geocode any city or address globally
+      try {
+        const isGitHubPages = window.location.hostname.includes("github.io");
+        const url = isGitHubPages
+          ? `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&accept-language=it`
+          : `/api/geocode?q=${encodeURIComponent(query)}`;
+
+        const response = await fetch(url, {
+          headers: isGitHubPages ? {} : { 'User-Agent': 'AquaMapWorldApplication/4.0 (ciancio.raffaella@gmail.com)' }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.length > 0) {
+            const firstResult = data[0];
+            const lat = Number(firstResult.lat);
+            const lng = Number(firstResult.lon);
+
+            lastCenteredQueryRef.current = query;
+            setMapCenter({
+              lat,
+              lng,
+              zoom: 14,
+              trigger: Date.now(),
+            });
+            setToastMessage(`Mappa spostata su: ${firstResult.display_name.split(',')[0]} (Zona ${query})`);
+          }
+        }
+      } catch (err) {
+        console.error("Geocoding lookup error:", err);
+      }
+    }, 1000); // 1s typing debounce is perfect and friendly
+
+    return () => clearTimeout(timer);
+  }, [filters.searchQuery, allFountains]);
 
   // Sync selected fountain centering and track last centered ID to prevent infinite updates
   const lastCenteredIdRef = useRef<string | null>(null);
@@ -792,16 +854,29 @@ export default function App() {
       </AnimatePresence>
 
       {/* Dynamic Toast System */}
-      <AnimatePresence>
-        {toastMessage && (
+      <AnimatePresence mode="wait">
+        {(isZoomedOutTooFar || toastMessage) && (
           <motion.div
+            key={isZoomedOutTooFar ? "zoomed-out-warning" : "dynamic-toast"}
             initial={{ opacity: 0, y: 50, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 50, scale: 0.95 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[11000] max-w-md w-[calc(100%-2rem)] px-5 py-3.5 bg-brand text-white border border-brand-light/25 shadow-2xl rounded-2xl flex items-center gap-2.5"
+            className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-[11000] max-w-md w-[calc(100%-2rem)] px-5 py-3.5 text-white border shadow-2xl rounded-2xl flex items-center gap-2.5 ${
+              isZoomedOutTooFar 
+                ? "bg-amber-600 border-amber-500/30 font-medium" 
+                : "bg-brand border-brand-light/25 shadow-brand/10"
+            }`}
           >
-            <Droplet className="w-5 h-5 text-brand-light fill-brand-light shrink-0" />
-            <span className="text-xs font-bold leading-normal">{toastMessage}</span>
+            {isZoomedOutTooFar ? (
+              <Info className="w-5 h-5 text-amber-200 shrink-0" />
+            ) : (
+              <Droplet className="w-5 h-5 text-brand-light fill-brand-light shrink-0" />
+            )}
+            <span className="text-xs font-bold leading-normal">
+              {isZoomedOutTooFar 
+                ? "Troppe fontanelle nell'area (più di 200). Zoomma più vicino per visualizzarle!"
+                : toastMessage}
+            </span>
           </motion.div>
         )}
       </AnimatePresence>

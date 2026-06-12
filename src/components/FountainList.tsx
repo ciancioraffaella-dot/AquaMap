@@ -331,7 +331,7 @@ export default function FountainList({
 
                   {/* Address */}
                   <p className="mt-2 text-xs text-natural-muted font-medium line-clamp-1 flex items-center gap-1">
-                    <span className="opacity-70">📍</span> {fountain.address}{fountain.city ? `, ${fountain.city}` : ''}
+                    <span className="opacity-70">📍</span> {fountain.address && fountain.city && fountain.address.toLowerCase().includes(fountain.city.toLowerCase()) ? fountain.address : `${fountain.address || ''}${fountain.city ? `, ${fountain.city}` : ''}`}
                   </p>
 
                   {/* Stats and image thumbnail preview */}
