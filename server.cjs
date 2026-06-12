@@ -37,10 +37,8 @@ module.exports = __toCommonJS(server_exports);
 var import_express = __toESM(require("express"), 1);
 var import_path = __toESM(require("path"), 1);
 var import_vite = require("vite");
-var import_fs = __toESM(require("fs"), 1);
 var import_supabase_js = require("@supabase/supabase-js");
 var import_meta = {};
-var AQUAMAP_FILE = "aquamap.json";
 var ONE_WEEK = 7 * 24 * 60 * 60 * 1e3;
 var supabaseClient = null;
 function getSupabase() {
@@ -283,75 +281,11 @@ function areaNameFromFeature(feature) {
   if (name.includes("New York")) return "New York";
   return "Milano";
 }
-async function seedExistingAquamapAndCleanup() {
-  if (!import_fs.default.existsSync(AQUAMAP_FILE)) {
-    console.log("No aquamap.json found to seed. Relying entirely on Supabase database tables.");
-    return;
-  }
-  const supabase = getSupabase();
-  if (!supabase) {
-    console.warn("Supabase credentials missing during startup. Please configure SUPABASE_URL and SUPABASE_ANON_KEY first.");
-    return;
-  }
-  try {
-    console.log("Reading existing static file 'aquamap.json' to seed Supabase 'fontanelle_osm' table...");
-    const rawData = import_fs.default.readFileSync(AQUAMAP_FILE, "utf-8");
-    const geojson = JSON.parse(rawData);
-    const features = geojson.features || [];
-    if (features.length === 0) {
-      console.log("Empty aquamap.json found, skipping seeding.");
-      return;
-    }
-    console.log(`Mapping ${features.length} features of aquamap.json to database structures...`);
-    const dbFountains = features.map((feature) => {
-      const lat = feature.geometry.coordinates[1];
-      const lng = feature.geometry.coordinates[0];
-      const safeId = feature.id.replace(/\//g, "-");
-      return mapToDB({
-        id: safeId,
-        name: feature.properties.name || feature.properties.description || "Fontanella",
-        lat,
-        lng,
-        address: feature.properties.address || feature.properties["addr:street"] || "Dati da OpenStreetMap",
-        status: "working",
-        waterType: "potabile",
-        description: feature.properties.description || "Dati provenienti da OpenStreetMap",
-        addedBy: "OpenStreetMap",
-        rating: 3,
-        photos: [],
-        reports: [],
-        createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-        city: feature.properties.city || "Milano",
-        isOsm: true
-      });
-    });
-    console.log(`Upserting ${dbFountains.length} fountains into 'fontanelle_osm' in chunks of 50...`);
-    const chunkSize = 50;
-    let succeededCount = 0;
-    for (let i = 0; i < dbFountains.length; i += chunkSize) {
-      const chunk = dbFountains.slice(i, i + chunkSize);
-      const { error } = await supabase.from("fontanelle_osm").upsert(chunk, { onConflict: "id" });
-      if (error) {
-        console.error(`Error seeding chunk ${i / chunkSize} into Supabase 'fontanelle_osm':`, error.message || error);
-        throw new Error(`Seeding failed at chunk ${i / chunkSize}: ${error.message}`);
-      } else {
-        succeededCount += chunk.length;
-      }
-    }
-    console.log(`SUCCESS: Seeded ${succeededCount} fountains into Supabase!`);
-    console.log(`Deleting local static fallback file '${AQUAMAP_FILE}' as requested...`);
-    import_fs.default.unlinkSync(AQUAMAP_FILE);
-    console.log(`Local static file '${AQUAMAP_FILE}' removed successfully!`);
-  } catch (err) {
-    console.error("Failed seeding or deleting during startup. Keeping local file for safety. Error:", err.message || err);
-  }
-}
 async function startServer() {
   const app = (0, import_express.default)();
   const PORT = 3e3;
   app.use(import_express.default.json({ limit: "10mb" }));
   printSupabaseSchemaGuideline();
-  await seedExistingAquamapAndCleanup();
   app.get("/api/reverse-geocode", async (req, res) => {
     try {
       const { lat, lng } = req.query;
