@@ -7,7 +7,7 @@ import AddFountainModal from './components/AddFountainModal';
 import { CITIES } from './data/seedData';
 import { Fountain, FountainFilter, FountainStatus, WaterType, Report } from './types';
 import { Map, List, Droplet, Plus, Compass, Info, Heart, HelpCircle, X } from 'lucide-react';
-import { fetchFountains, insertFountain, submitReport, formatReverseGeocodeAddress } from './supabaseClient';
+import { fetchFountains, insertFountain, submitReport, formatReverseGeocodeAddress, syncOsmClientSide } from './supabaseClient';
 
 const sanitizeId = (id: any): string => {
   if (!id) return `f-${Math.random().toString(36).substring(2, 9)}`;
@@ -389,7 +389,28 @@ export default function App() {
 
   const handleRefreshOsm = async () => {
     if (window.location.hostname.includes("github.io")) {
-      setToastMessage("La sincronizzazione con OpenStreetMap richiede un server backend ed è disabilitata su GitHub Pages statico.");
+      try {
+        setToastMessage("Inizio della sincronizzazione client-side con OpenStreetMap...");
+        const result = await syncOsmClientSide((loadingMsg) => {
+          setToastMessage(loadingMsg);
+        });
+        if (result.success) {
+          setToastMessage(result.message);
+          // Reload all fountains from direct Supabase
+          const fetched = await fetchFountains();
+          if (fetched && fetched.length > 0) {
+            const osmList = fetched.filter((f) => f.isOsm);
+            const userList = fetched.filter((f) => !f.isOsm);
+            setOsmFountains(osmList);
+            setFountains(userList);
+          }
+        } else {
+          setToastMessage(`Errore: ${result.message}`);
+        }
+      } catch (err: any) {
+        console.error("OSM sync trigger error client-side:", err);
+        setToastMessage(`Errore di connessione: ${err.message || err}`);
+      }
       return;
     }
     try {

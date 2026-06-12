@@ -290,3 +290,121 @@ export async function submitReport(
 
   return null;
 }
+
+// Client-Side OpenStreetMap Synchronization
+export async function syncOsmClientSide(progressCallback?: (msg: string) => void): Promise<{ success: boolean; count: number; message: string }> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    return { success: false, count: 0, message: "Supabase non è configurato o le chiavi nel client non sono caricate/valide." };
+  }
+
+  const areas = [
+    { name: 'Milano', query: 'relation["name"="Milano"]["admin_level"="8"]' },
+    { name: 'Roma', query: 'relation["name"="Roma"]["admin_level"="8"]' },
+    { name: 'Paris', query: 'relation["name"="Paris"]["admin_level"="6"]' },
+    { name: 'London', query: 'relation["name"="London"]["admin_level"="8"]' },
+    { name: 'New York', query: 'relation["name"="New York City"]["admin_level"="5"]' }
+  ];
+
+  const features: any[] = [];
+  
+  if (progressCallback) progressCallback("Inizio recupero dati da OpenStreetMap Overpass (5 città)...");
+
+  for (const area of areas) {
+    try {
+      if (progressCallback) progressCallback(`Caricamento fontanelle da OSM per: ${area.name}...`);
+      const queryStr = `
+        [out:json][timeout:90];
+        ${area.query}->.searchArea;
+        node["amenity"="drinking_water"](area.searchArea);
+        out body;
+      `;
+      const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(queryStr)}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const osmData = await res.json();
+        const elementFeatures = (osmData.elements || [])
+          .filter((el: any) => el.type === 'node')
+          .map((el: any) => ({
+            type: "Feature",
+            properties: {
+              "@id": `node/${el.id}`,
+              "amenity": "drinking_water",
+              "name": el.tags?.name || el.tags?.description || `Fontanella a ${area.name}`,
+              "city": area.name,
+              ...el.tags
+            },
+            geometry: {
+              type: "Point",
+              coordinates: [el.lon, el.lat]
+            },
+            id: `node-${el.id}`
+          }));
+        features.push(...elementFeatures);
+        if (progressCallback) progressCallback(`Trovate ${elementFeatures.length} fontanelle per ${area.name}.`);
+      } else {
+        console.error(`Overpass failed for ${area.name} with status ${res.status}`);
+      }
+      
+      // Delay to respect OSM Overpass rate limits
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (err: any) {
+      console.error(`Error querying OSM for ${area.name}:`, err);
+    }
+  }
+
+  if (features.length === 0) {
+    return { success: false, count: 0, message: "Nessuna fontanella scaricata da OSM. Riprovare tra qualche minuto." };
+  }
+
+  if (progressCallback) progressCallback(`Sincronizzazione di ${features.length} fontanelle direttamente in Supabase...`);
+
+  const dbFountains = features.map(feature => {
+    const lat = feature.geometry.coordinates[1];
+    const lng = feature.geometry.coordinates[0];
+    const safeId = feature.id.replace(/\//g, "-");
+    
+    return mapToDBRecord({
+      id: safeId,
+      name: feature.properties.name || feature.properties.description || "Fontanella",
+      lat: lat,
+      lng: lng,
+      address: feature.properties.address || feature.properties['addr:street'] || "Dati da OpenStreetMap",
+      status: "working",
+      waterType: "potabile",
+      description: feature.properties.description || "Dati provenienti da OpenStreetMap",
+      addedBy: "OpenStreetMap",
+      rating: 3.0,
+      photos: [],
+      reports: [],
+      createdAt: new Date().toISOString(),
+      city: feature.properties.city || "Milano",
+      isOsm: true
+    });
+  });
+
+  // Chunk upserts in batches of 50
+  const chunkSize = 50;
+  let succeededCount = 0;
+  for (let i = 0; i < dbFountains.length; i += chunkSize) {
+    const chunk = dbFountains.slice(i, i + chunkSize);
+    if (progressCallback) {
+      progressCallback(`Salvataggio dati Supabase: Batch ${Math.floor(i / chunkSize) + 1}/${Math.ceil(dbFountains.length / chunkSize)}`);
+    }
+    const { error } = await supabase
+      .from("fontanelle_osm")
+      .upsert(chunk, { onConflict: "id" });
+    
+    if (error) {
+      console.error(`Error syncing chunk to Supabase fontanelle_osm:`, error.message || error);
+    } else {
+      succeededCount += chunk.length;
+    }
+  }
+
+  return { 
+    success: true, 
+    count: succeededCount, 
+    message: `Sincronizzazione completata! ${succeededCount} fontanelle sincronizzate direttamente su Supabase.` 
+  };
+}
