@@ -34,6 +34,7 @@ export default function FountainMap({
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [addressLoading, setAddressLoading] = useState(false);
+  const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
 
   // Helper to construct SVG markers for different fountain states
   const createCustomIcon = (status: FountainStatus, isActive: boolean) => {
@@ -133,8 +134,10 @@ export default function FountainMap({
       onMapClick({ lat, lng, address: addressStr });
     });
 
-    const triggerBoundsChange = () => {
+    const handleMapMovement = () => {
       const bounds = map.getBounds();
+      setMapBounds(bounds);
+
       const sw = bounds.getSouthWest();
       const ne = bounds.getNorthEast();
       if (onBoundsChange) {
@@ -147,15 +150,15 @@ export default function FountainMap({
       }
     };
 
-    map.on('moveend', triggerBoundsChange);
-    map.on('zoomend', triggerBoundsChange);
+    map.on('moveend', handleMapMovement);
+    map.on('zoomend', handleMapMovement);
 
-    const boundsTimer = setTimeout(triggerBoundsChange, 100);
+    const boundsTimer = setTimeout(handleMapMovement, 100);
 
     return () => {
       clearTimeout(boundsTimer);
-      map.off('moveend', triggerBoundsChange);
-      map.off('zoomend', triggerBoundsChange);
+      map.off('moveend', handleMapMovement);
+      map.off('zoomend', handleMapMovement);
       map.remove();
       mapRef.current = null;
       markersGroupRef.current = null;
@@ -183,7 +186,17 @@ export default function FountainMap({
     // Combine local + osm
     const allFountains = [...fountains, ...osmFountains];
 
-    allFountains.forEach((fountain) => {
+    // Filter by bounds with a padded buffer zone to keep scroll operation completely fluid
+    let visibleFountains = allFountains;
+    if (mapBounds) {
+      const paddedBounds = mapBounds.pad(0.15); // 15% padding
+      visibleFountains = allFountains.filter((f) => {
+        if (f.id === selectedFountainId) return true;
+        return paddedBounds.contains([f.lat, f.lng]);
+      });
+    }
+
+    visibleFountains.forEach((fountain) => {
       const isActive = fountain.id === selectedFountainId;
       const marker = L.marker([fountain.lat, fountain.lng], {
         icon: createCustomIcon(fountain.status, isActive),
@@ -197,7 +210,7 @@ export default function FountainMap({
 
       markersGroup.addLayer(marker);
     });
-  }, [fountains, osmFountains, selectedFountainId]);
+  }, [fountains, osmFountains, selectedFountainId, mapBounds]);
 
   // --- Handle Geolocation ---
   const handleGPSLocation = () => {

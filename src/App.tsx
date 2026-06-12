@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import FountainMap from './components/FountainMap';
 import FountainList from './components/FountainList';
@@ -6,7 +6,7 @@ import FountainDetail from './components/FountainDetail';
 import AddFountainModal from './components/AddFountainModal';
 import { CITIES } from './data/seedData';
 import { Fountain, FountainFilter, FountainStatus, WaterType, Report } from './types';
-import { Map, List, Droplet, Plus, Compass, Info, Heart, HelpCircle, X } from 'lucide-react';
+import { Map as MapIcon, List, Droplet, Plus, Compass, Info, Heart, HelpCircle, X } from 'lucide-react';
 import { fetchFountains, insertFountain, submitReport, formatReverseGeocodeAddress, syncOsmClientSide } from './supabaseClient';
 
 const sanitizeId = (id: any): string => {
@@ -72,14 +72,6 @@ export default function App() {
     }
   });
 
-  // Track map bounds coordinates viewport
-  const [currentBounds, setCurrentBounds] = useState<{
-    latMin: number;
-    latMax: number;
-    lngMin: number;
-    lngMax: number;
-  } | null>(null);
-
   // Trigger Onboarding modal check
   useEffect(() => {
     const hasVisited = localStorage.getItem('visited_fountains_app');
@@ -116,6 +108,43 @@ export default function App() {
       console.error('Failed to save updates locally:', e);
     }
   }, [fountainUpdates]);
+
+  // Viewport borders for OSM live querying
+  const [currentBounds, setCurrentBounds] = useState<{
+    latMin: number;
+    latMax: number;
+    lngMin: number;
+    lngMax: number;
+  } | null>(null);
+
+  // Debounce and dynamically load OSM fountains matching viewport boundaries
+  useEffect(() => {
+    if (!currentBounds) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        console.log("[AquaMap] Viewport changed, executing targeted spatial load for bounds:", currentBounds);
+        const fetched = await fetchFountains(currentBounds);
+        if (fetched && fetched.length > 0) {
+          const osmList = fetched.filter((f) => f.isOsm);
+          const userList = fetched.filter((f) => !f.isOsm);
+          
+          setOsmFountains(osmList);
+          if (userList.length > 0) {
+            setFountains((prev) => {
+              const map = new Map(prev.map((f) => [f.id, f]));
+              userList.forEach((u) => map.set(u.id, u));
+              return Array.from(map.values());
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Spatial index load failed:", err);
+      }
+    }, 450); // 450ms debounce - perfect balance of speed and throttle
+
+    return () => clearTimeout(timer);
+  }, [currentBounds]);
 
   // Load all fountains from Supabase on mount
   useEffect(() => {
@@ -185,8 +214,44 @@ export default function App() {
     fetchGeo();
   }, [selectedFountainId, addressCache, fountains, osmFountains]);
 
-  // Combine both sources
-  const allFountains = [...fountains, ...osmFountains];
+  // Combine both sources and enrich with on-demand cached geocoded address
+  const allFountains = [...fountains, ...osmFountains].map((f) => {
+    const cacheKey = `${f.lat.toFixed(5)},${f.lng.toFixed(5)}`;
+    if (addressCache[cacheKey]) {
+      return { ...f, address: addressCache[cacheKey] };
+    }
+    return f;
+  });
+
+  // Filter fountains that are inside the current map viewport
+  const visibleFountainsInViewport = useMemo(() => {
+    if (!currentBounds) {
+      return allFountains;
+    }
+    return allFountains.filter((f) => {
+      return (
+        f.lat >= currentBounds.latMin &&
+        f.lat <= currentBounds.latMax &&
+        f.lng >= currentBounds.lngMin &&
+        f.lng <= currentBounds.lngMax
+      );
+    });
+  }, [allFountains, currentBounds]);
+
+  const isZoomedOutTooFar = currentBounds ? (visibleFountainsInViewport.length > 200) : false;
+
+  const [zoomToastShown, setZoomToastShown] = useState(false);
+
+  useEffect(() => {
+    if (isZoomedOutTooFar) {
+      if (!zoomToastShown) {
+        setToastMessage("Troppe fontanelle nell'area (più di 200). Zoomma più vicino per visualizzarle!");
+        setZoomToastShown(true);
+      }
+    } else {
+      setZoomToastShown(false);
+    }
+  }, [isZoomedOutTooFar, zoomToastShown]);
 
   // Sync selected fountain centering and track last centered ID to prevent infinite updates
   const lastCenteredIdRef = useRef<string | null>(null);
@@ -469,7 +534,7 @@ export default function App() {
           }`}
         >
           <FountainList
-            fountains={allFountains}
+            fountains={isZoomedOutTooFar ? [] : visibleFountainsInViewport}
             filters={filters}
             setFilters={setFilters}
             selectedFountainId={selectedFountainId}
@@ -487,8 +552,8 @@ export default function App() {
           }`}
         >
           <FountainMap
-            fountains={allFountains}
-            osmFountains={osmFountains}
+            fountains={isZoomedOutTooFar ? [] : fountains}
+            osmFountains={isZoomedOutTooFar ? [] : osmFountains}
             selectedFountainId={selectedFountainId}
             onSelectFountain={setSelectedFountainId}
             onMapClick={setAddCoords}
@@ -551,7 +616,7 @@ export default function App() {
             activeView === 'map' ? 'text-brand scale-105' : 'text-natural-muted hover:text-natural-dark'
           }`}
         >
-          <Map className="w-5.5 h-5.5" />
+          <MapIcon className="w-5.5 h-5.5" />
           <span className="text-[10px] font-bold">Mappa</span>
         </button>
 

@@ -205,18 +205,13 @@ export default function AddFountainModal({ coordinates, onClose, onSave }: AddFo
             <label className="block text-xxs font-bold uppercase text-natural-muted tracking-wider mb-1.5">
               Città Riferimento
             </label>
-            <select
+            <input
+              type="text"
               value={city}
               onChange={(e) => setCity(e.target.value)}
-              className="w-full text-sm border border-natural-border/70 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition-all bg-white text-natural-dark cursor-pointer"
-            >
-              <option value="Roma">Roma</option>
-              <option value="Milano">Milano</option>
-              <option value="Torino">Torino</option>
-              <option value="Napoli">Napoli</option>
-              <option value="Firenze">Firenze</option>
-              <option value="Altra">Altra Città</option>
-            </select>
+              placeholder="e.g. Roma, Milano..."
+              className="w-full text-sm border border-natural-border/70 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition-all bg-white text-natural-dark"
+            />
           </div>
           <div>
             <label className="block text-xxs font-bold uppercase text-natural-muted tracking-wider mb-1.5">

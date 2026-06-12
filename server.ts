@@ -205,7 +205,61 @@ function findNearestEuropeanCityServer(lat: number, lng: number): { city: string
     { name: 'Monaco di Baviera', lat: 48.1351, lng: 11.5820 },
     { name: 'Lisbona', lat: 38.7223, lng: -9.1393 },
     { name: 'Atene', lat: 37.9838, lng: 23.7275 },
-    { name: 'Dublino', lat: 53.3498, lng: -6.2603 }
+    { name: 'Dublino', lat: 53.3498, lng: -6.2603 },
+    { name: 'Piazza Armerina', lat: 37.3856, lng: 14.3670 },
+    { name: 'Enna', lat: 37.5600, lng: 14.2810 },
+    { name: 'Palermo', lat: 38.1157, lng: 13.3615 },
+    { name: 'Catania', lat: 37.5079, lng: 15.0830 },
+    { name: 'Messina', lat: 38.1938, lng: 15.5540 },
+    { name: 'Siracusa', lat: 37.0755, lng: 15.2866 },
+    { name: 'Ragusa', lat: 36.9282, lng: 14.7172 },
+    { name: 'Caltanissetta', lat: 37.4903, lng: 14.0620 },
+    { name: 'Agrigento', lat: 37.3111, lng: 13.5765 },
+    { name: 'Trapani', lat: 38.0178, lng: 12.5150 },
+    { name: 'Cagliari', lat: 39.2238, lng: 9.1217 },
+    { name: 'Sassari', lat: 40.7259, lng: 8.5556 },
+    { name: 'Alghero', lat: 40.5580, lng: 8.3181 },
+    { name: 'Bari', lat: 41.1171, lng: 16.8719 },
+    { name: 'Taranto', lat: 40.4644, lng: 17.2470 },
+    { name: 'Lecce', lat: 40.3533, lng: 18.1741 },
+    { name: 'Foggia', lat: 41.4622, lng: 15.5446 },
+    { name: 'Reggio Calabria', lat: 38.1113, lng: 15.6473 },
+    { name: 'Catanzaro', lat: 38.9054, lng: 16.5948 },
+    { name: 'Cosenza', lat: 39.2983, lng: 16.2537 },
+    { name: 'Potenza', lat: 40.6405, lng: 15.8056 },
+    { name: 'Matera', lat: 40.6664, lng: 16.6043 },
+    { name: 'Salerno', lat: 40.6780, lng: 14.7881 },
+    { name: 'Caserta', lat: 41.0735, lng: 14.3331 },
+    { name: 'Pescara', lat: 42.4618, lng: 14.2185 },
+    { name: 'Ancona', lat: 43.6158, lng: 13.5189 },
+    { name: 'Perugia', lat: 43.1107, lng: 12.3908 },
+    { name: 'Terni', lat: 42.5638, lng: 12.6414 },
+    { name: 'Bologna', lat: 44.4949, lng: 11.3426 },
+    { name: 'Modena', lat: 44.6471, lng: 10.9252 },
+    { name: 'Parma', lat: 44.8015, lng: 10.3279 },
+    { name: 'Ravenna', lat: 44.4183, lng: 12.2035 },
+    { name: 'Rimini', lat: 44.0575, lng: 12.5653 },
+    { name: 'Genova', lat: 44.4056, lng: 8.9463 },
+    { name: 'La Spezia', lat: 44.1107, lng: 9.8434 },
+    { name: 'Sanremo', lat: 43.8160, lng: 7.7738 },
+    { name: 'Verona', lat: 45.4383, lng: 10.9916 },
+    { name: 'Padova', lat: 45.4064, lng: 11.8768 },
+    { name: 'Vicenza', lat: 45.5455, lng: 11.5475 },
+    { name: 'Treviso', lat: 45.6669, lng: 12.2429 },
+    { name: 'Trieste', lat: 45.6495, lng: 13.7768 },
+    { name: 'Udine', lat: 46.0625, lng: 13.2373 },
+    { name: 'Trento', lat: 46.0679, lng: 11.1211 },
+    { name: 'Bolzano', lat: 46.4908, lng: 11.3548 },
+    { name: 'Brescia', lat: 45.5398, lng: 10.2198 },
+    { name: 'Bergamo', lat: 45.6983, lng: 9.6773 },
+    { name: 'Como', lat: 45.8081, lng: 9.0852 },
+    { name: 'Varese', lat: 45.8172, lng: 8.8262 },
+    { name: 'Novara', lat: 45.4468, lng: 8.6214 },
+    { name: 'Alessandria', lat: 44.9129, lng: 8.6150 },
+    { name: 'Pisa', lat: 43.7085, lng: 10.4036 },
+    { name: 'Livorno', lat: 43.5485, lng: 10.3106 },
+    { name: 'Siena', lat: 43.3182, lng: 11.3304 },
+    { name: 'Lucca', lat: 43.8429, lng: 10.5027 }
   ];
 
   let minDistance = Infinity;
@@ -219,16 +273,17 @@ function findNearestEuropeanCityServer(lat: number, lng: number): { city: string
     }
   }
 
-  if (minDistance < 0.45) {
+  // If closest city is within generous ~3.0 degrees, align it
+  if (minDistance < 3.0) {
     return { 
       city: nearestCityName, 
-      address: `Zona centrale di ${nearestCityName}, Europa` 
+      address: `Zona centrale di ${nearestCityName}, Italia` 
     };
   }
 
   return { 
-    city: 'Altra', 
-    address: `Europa centrale (Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)})` 
+    city: nearestCityName, 
+    address: `Zona centrale di ${nearestCityName}, Europa` 
   };
 }
 
@@ -425,10 +480,23 @@ async function startServer() {
     if (supabase) {
       try {
         console.log("Fetching latest fountains from Supabase tables (fontanelle_osm, fontanelle_utente)...");
-        const [osmResult, utenteResult] = await Promise.all([
-          supabase.from("fontanelle_osm").select("*"),
-          supabase.from("fontanelle_utente").select("*")
-        ]);
+        const utenteResult = await supabase.from("fontanelle_utente").select("*");
+
+        const { latMin, latMax, lngMin, lngMax } = req.query;
+        let osmQuery = supabase.from("fontanelle_osm").select("*");
+        
+        if (latMin && latMax && lngMin && lngMax) {
+          osmQuery = osmQuery
+            .gte("lat", Number(latMin))
+            .lte("lat", Number(latMax))
+            .gte("lng", Number(lngMin))
+            .lte("lng", Number(lngMax));
+        } else {
+          // If no bounds specified, limit initial fetch to prevent performance issues
+          osmQuery = osmQuery.limit(1000);
+        }
+
+        const osmResult = await osmQuery;
 
         if (!osmResult.error || !utenteResult.error) {
           const osmFountains = (osmResult.data || []).map(record => mapToFountain(record));
