@@ -42,21 +42,40 @@ export default function AddFountainModal({ coordinates, onClose, onSave }: AddFo
     if (coordinates) {
       setAddress(coordinates.address);
       
-      // Attempt to guess the city from the address
+      // Attempt to guess the city from the address dynamically
       const addressLower = coordinates.address.toLowerCase();
+      const parts = coordinates.address.split(',');
+      let guessedCity = 'Altra';
+      
       if (addressLower.includes('roma')) {
-        setCity('Roma');
+        guessedCity = 'Roma';
       } else if (addressLower.includes('milano')) {
-        setCity('Milano');
+        guessedCity = 'Milano';
       } else if (addressLower.includes('torino')) {
-        setCity('Torino');
+        guessedCity = 'Torino';
       } else if (addressLower.includes('napoli')) {
-        setCity('Napoli');
+        guessedCity = 'Napoli';
       } else if (addressLower.includes('firenze')) {
-        setCity('Firenze');
-      } else {
-        setCity('Altra');
+        guessedCity = 'Firenze';
+      } else if (parts.length > 0) {
+        // Dynamically guess from the address parts
+        const possibleCity = parts[parts.length - 1].trim();
+        if (possibleCity && isNaN(Number(possibleCity)) && possibleCity.length > 2) {
+          guessedCity = possibleCity;
+        } else if (parts.length > 1) {
+          const secondPossible = parts[parts.length - 2].trim();
+          if (secondPossible && isNaN(Number(secondPossible)) && secondPossible.length > 2) {
+            guessedCity = secondPossible;
+          }
+        }
       }
+      
+      // Capitalize first letter cleanly
+      if (guessedCity && guessedCity !== 'Altra') {
+        guessedCity = guessedCity.charAt(0).toUpperCase() + guessedCity.slice(1);
+      }
+      
+      setCity(guessedCity);
     }
   }, [coordinates]);
 

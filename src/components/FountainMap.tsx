@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { Fountain, FountainStatus } from '../types';
 import { Locate, Navigation, Plus, Compass } from 'lucide-react';
+import { formatReverseGeocodeAddress } from '../supabaseClient';
 
 interface FountainMapProps {
   fountains: Fountain[];
@@ -105,16 +106,22 @@ export default function FountainMap({
       setAddressLoading(true);
       let addressStr = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
 
-      // Try server-side reverse geocoding via our secure proxy API.
-      // Safe to try, with robust fallback if network fails or offline.
+      // Try server-side reverse geocoding via secure proxy API first, or fallback direct to Osm Nominatim if on GitHub Pages
       try {
-        const response = await fetch(`/api/reverse-geocode?lat=${lat}&lng=${lng}`);
+        const isGitHubPages = window.location.hostname.includes("github.io");
+        const url = isGitHubPages
+          ? `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=it`
+          : `/api/reverse-geocode?lat=${lat}&lng=${lng}`;
+
+        const response = await fetch(url, {
+          headers: isGitHubPages ? {} : { 'User-Agent': 'AquaMapWorldApplication/4.0 (ciancio.raffaella@gmail.com)' }
+        });
+
         if (response.ok) {
           const data = await response.json();
-          if (data && data.display_name) {
-            // Trim to cleaner address
-            const parts = data.display_name.split(',');
-            addressStr = parts.slice(0, 3).join(',').trim();
+          if (data) {
+            const parsed = formatReverseGeocodeAddress(data);
+            addressStr = parsed.address;
           }
         }
       } catch (err) {

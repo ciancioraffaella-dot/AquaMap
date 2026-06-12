@@ -7,6 +7,7 @@ import AddFountainModal from './components/AddFountainModal';
 import { CITIES } from './data/seedData';
 import { Fountain, FountainFilter, FountainStatus, WaterType, Report } from './types';
 import { Map, List, Droplet, Plus, Compass, Info, Heart, HelpCircle, X } from 'lucide-react';
+import { fetchFountains, insertFountain, submitReport, formatReverseGeocodeAddress } from './supabaseClient';
 
 const sanitizeId = (id: any): string => {
   if (!id) return `f-${Math.random().toString(36).substring(2, 9)}`;
@@ -116,19 +117,16 @@ export default function App() {
     }
   }, [fountainUpdates]);
 
-  // Load all fountains from Supabase via our Express Backend on mount
+  // Load all fountains from Supabase on mount
   useEffect(() => {
     const loadFromSupabase = async () => {
       try {
-        const res = await fetch("/api/fountains");
-        if (res.ok) {
-          const fetched: Fountain[] = await res.json();
-          if (fetched && fetched.length > 0) {
-            const osmList = fetched.filter((f) => f.isOsm);
-            const userList = fetched.filter((f) => !f.isOsm);
-            setOsmFountains(osmList);
-            setFountains(userList);
-          }
+        const fetched = await fetchFountains();
+        if (fetched && fetched.length > 0) {
+          const osmList = fetched.filter((f) => f.isOsm);
+          const userList = fetched.filter((f) => !f.isOsm);
+          setOsmFountains(osmList);
+          setFountains(userList);
         }
       } catch (err) {
         console.error("Backend Supabase retrieve error:", err);
@@ -157,13 +155,21 @@ export default function App() {
 
     const fetchGeo = async () => {
       try {
-        const url = `/api/reverse-geocode?lat=${selected.lat}&lng=${selected.lng}`;
-        const res = await fetch(url);
+        const isGitHubPages = window.location.hostname.includes("github.io");
+        const url = isGitHubPages
+          ? `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${selected.lat}&lon=${selected.lng}&accept-language=it`
+          : `/api/reverse-geocode?lat=${selected.lat}&lng=${selected.lng}`;
+
+        const res = await fetch(url, {
+          headers: isGitHubPages ? {} : { 'User-Agent': 'AquaMapWorldApplication/4.0 (ciancio.raffaella@gmail.com)' }
+        });
         if (res.ok) {
           const data = await res.json();
-          const cleanAddress = data.display_name
-            ? data.display_name.split(',').slice(0, 3).join(',').trim()
-            : `Lat: ${selected.lat.toFixed(5)}, Lng: ${selected.lng.toFixed(5)}`;
+          let cleanAddress = `Lat: ${selected.lat.toFixed(5)}, Lng: ${selected.lng.toFixed(5)}`;
+          if (data) {
+            const parsed = formatReverseGeocodeAddress(data);
+            cleanAddress = parsed.address;
+          }
             
           setAddressCache(prev => {
             const next = { ...prev, [cacheKey]: cleanAddress };
@@ -270,13 +276,8 @@ export default function App() {
 
     // Persist real-time to Supabase
     try {
-      const res = await fetch("/api/fountains", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newFountain),
-      });
-      if (res.ok) {
-        const savedFountain = await res.json();
+      const savedFountain = await insertFountain(newFountain);
+      if (savedFountain) {
         // swap state record with confirmed server-supplied db structure
         setFountains((prev) => prev.map(f => f.id === newFountain.id ? savedFountain : f));
         setToastMessage("Fontanella salvata con successo su Supabase!");
@@ -369,16 +370,11 @@ export default function App() {
       }
     }
 
-    // 2. Sync to Supabase Table 'fontanelle' via API
+    // 2. Sync to Supabase Table via unified submitReport helper
     try {
       const reportPayload = { type, comment, statusAfter, rating, photo };
-      const res = await fetch(`/api/fountains/${fountainId}/reports`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(reportPayload)
-      });
-      if (res.ok) {
-        const syncedFountain = await res.json();
+      const syncedFountain = await submitReport(fountainId, reportPayload);
+      if (syncedFountain) {
         if (syncedFountain.isOsm) {
           setOsmFountains((prev) => prev.map((item) => (item.id === fountainId ? syncedFountain : item)));
         } else {
@@ -392,6 +388,10 @@ export default function App() {
   };
 
   const handleRefreshOsm = async () => {
+    if (window.location.hostname.includes("github.io")) {
+      setToastMessage("La sincronizzazione con OpenStreetMap richiede un server backend ed è disabilitata su GitHub Pages statico.");
+      return;
+    }
     try {
       setToastMessage("Inizio della sincronizzazione con OpenStreetMap... Potrebbe richiedere 10-15 secondi.");
       const res = await fetch("/api/fountains/refresh-osm", {
