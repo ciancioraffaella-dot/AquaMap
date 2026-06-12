@@ -7,7 +7,7 @@ import AddFountainModal from './components/AddFountainModal';
 import { CITIES } from './data/seedData';
 import { Fountain, FountainFilter, FountainStatus, WaterType, Report } from './types';
 import { Map as MapIcon, List, Droplet, Plus, Compass, Info, Heart, HelpCircle, X } from 'lucide-react';
-import { fetchFountains, insertFountain, submitReport, formatReverseGeocodeAddress, syncOsmClientSide } from './supabaseClient';
+import { fetchFountains, insertFountain, submitReport, formatReverseGeocodeAddress, syncOsmClientSide, findNearestEuropeanCity } from './supabaseClient';
 
 const sanitizeId = (id: any): string => {
   if (!id) return `f-${Math.random().toString(36).substring(2, 9)}`;
@@ -214,14 +214,50 @@ export default function App() {
     fetchGeo();
   }, [selectedFountainId, addressCache, fountains, osmFountains]);
 
-  // Combine both sources and enrich with on-demand cached geocoded address
-  const allFountains = [...fountains, ...osmFountains].map((f) => {
-    const cacheKey = `${f.lat.toFixed(5)},${f.lng.toFixed(5)}`;
-    if (addressCache[cacheKey]) {
-      return { ...f, address: addressCache[cacheKey] };
-    }
-    return f;
-  });
+  // Combine both sources and enrich with on-demand cached geocoded address or fallback nearest city/address
+  const allFountains = useMemo(() => {
+    return [...fountains, ...osmFountains].map((f) => {
+      let currentCity = f.city;
+      let currentAddress = f.address;
+
+      // If city is placeholder-y, empty, "Altro", "Altra", or missing, associate it beautifully
+      if (!currentCity || currentCity === 'Altro' || currentCity === 'Altra' || currentCity === 'Sconosciuta') {
+        const resolved = findNearestEuropeanCity(f.lat, f.lng);
+        currentCity = resolved.city;
+        if (!currentAddress || currentAddress === 'Indirizzo non presente' || currentAddress === 'Dati da OpenStreetMap' || currentAddress.startsWith('Lat:')) {
+          currentAddress = resolved.address;
+        }
+      }
+
+      // Check if we have an on-demand cached precise reverse-geocoded address
+      const cacheKey = `${f.lat.toFixed(5)},${f.lng.toFixed(5)}`;
+      if (addressCache[cacheKey]) {
+        currentAddress = addressCache[cacheKey];
+      }
+
+      return {
+        ...f,
+        city: currentCity,
+        address: currentAddress
+      };
+    });
+  }, [fountains, osmFountains, addressCache]);
+
+  const isSearching = filters.searchQuery.trim().length > 0;
+
+  // Filter fountains that match the current search query globally
+  const filteredSearchAllFountains = useMemo(() => {
+    if (!isSearching) return allFountains;
+    const query = filters.searchQuery.trim().toLowerCase();
+    return allFountains.filter((f) => {
+      return (
+        f.name.toLowerCase().includes(query) ||
+        (f.description && f.description.toLowerCase().includes(query)) ||
+        f.address.toLowerCase().includes(query) ||
+        f.city.toLowerCase().includes(query)
+      );
+    });
+  }, [allFountains, isSearching, filters.searchQuery]);
 
   // Filter fountains that are inside the current map viewport
   const visibleFountainsInViewport = useMemo(() => {
@@ -238,7 +274,18 @@ export default function App() {
     });
   }, [allFountains, currentBounds]);
 
-  const isZoomedOutTooFar = currentBounds ? (visibleFountainsInViewport.length > 200) : false;
+  // Determine what list of fountains should be rendered in the left list view
+  const listFountainsToRender = useMemo(() => {
+    if (isSearching) {
+      return filteredSearchAllFountains;
+    }
+    return visibleFountainsInViewport;
+  }, [isSearching, filteredSearchAllFountains, visibleFountainsInViewport]);
+
+  // Zoomed too far warning: only when NOT searching, as searching overrides the full view to display answers
+  const isZoomedOutTooFar = currentBounds 
+    ? (!isSearching && visibleFountainsInViewport.length > 200) 
+    : false;
 
   const [zoomToastShown, setZoomToastShown] = useState(false);
 
@@ -252,6 +299,31 @@ export default function App() {
       setZoomToastShown(false);
     }
   }, [isZoomedOutTooFar, zoomToastShown]);
+
+  // Auto-center map on search matches to align with user location or searched city/street
+  const lastCenteredQueryRef = useRef<string>('');
+
+  useEffect(() => {
+    const query = filters.searchQuery.trim().toLowerCase();
+    if (query.length < 3) {
+      lastCenteredQueryRef.current = '';
+      return;
+    }
+
+    if (query === lastCenteredQueryRef.current) return;
+
+    if (filteredSearchAllFountains.length > 0) {
+      lastCenteredQueryRef.current = query;
+      // Pan to the first matching search result and zoom in nicely
+      const firstMatch = filteredSearchAllFountains[0];
+      setMapCenter({
+        lat: firstMatch.lat,
+        lng: firstMatch.lng,
+        zoom: filteredSearchAllFountains.length === 1 ? 17 : 14,
+        trigger: Date.now(),
+      });
+    }
+  }, [filters.searchQuery, filteredSearchAllFountains]);
 
   // Sync selected fountain centering and track last centered ID to prevent infinite updates
   const lastCenteredIdRef = useRef<string | null>(null);
@@ -534,7 +606,7 @@ export default function App() {
           }`}
         >
           <FountainList
-            fountains={isZoomedOutTooFar ? [] : visibleFountainsInViewport}
+            fountains={isZoomedOutTooFar ? [] : listFountainsToRender}
             filters={filters}
             setFilters={setFilters}
             selectedFountainId={selectedFountainId}
@@ -552,8 +624,8 @@ export default function App() {
           }`}
         >
           <FountainMap
-            fountains={isZoomedOutTooFar ? [] : fountains}
-            osmFountains={isZoomedOutTooFar ? [] : osmFountains}
+            fountains={isZoomedOutTooFar ? [] : listFountainsToRender.filter((f) => !f.isOsm)}
+            osmFountains={isZoomedOutTooFar ? [] : listFountainsToRender.filter((f) => f.isOsm)}
             selectedFountainId={selectedFountainId}
             onSelectFountain={setSelectedFountainId}
             onMapClick={setAddCoords}
