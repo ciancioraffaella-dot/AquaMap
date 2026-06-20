@@ -78,7 +78,7 @@ function getSupabase() {
 function mapToDB(f) {
   return {
     id: String(f.id),
-    name: f.name || "Fontanella",
+    name: f.name || (f.amenity === "toilets" ? "Bagno Pubblico" : "Fontanella"),
     lat: Number(f.lat),
     lng: Number(f.lng),
     address: f.address || "",
@@ -93,13 +93,14 @@ function mapToDB(f) {
     city: f.city || "Altro",
     water_flow_rate: f.waterFlowRate || null,
     has_filter: f.hasFilter !== void 0 ? !!f.hasFilter : false,
-    is_osm: f.isOsm !== void 0 ? !!f.isOsm : false
+    is_osm: f.isOsm !== void 0 ? !!f.isOsm : false,
+    amenity: f.amenity || "drinking_water"
   };
 }
 function mapToFountain(db) {
   return {
     id: db.id,
-    name: db.name,
+    name: db.name || (db.amenity === "toilets" ? "Bagno Pubblico" : "Fontanella"),
     lat: Number(db.lat),
     lng: Number(db.lng),
     address: db.address,
@@ -114,7 +115,8 @@ function mapToFountain(db) {
     city: db.city,
     waterFlowRate: db.water_flow_rate || void 0,
     hasFilter: !!db.has_filter,
-    isOsm: !!db.is_osm
+    isOsm: !!db.is_osm,
+    amenity: db.amenity || "drinking_water"
   };
 }
 function printSupabaseSchemaGuideline() {
@@ -141,7 +143,7 @@ CREATE TABLE IF NOT EXISTS public.fontanelle_osm (
     city text NOT NULL,
     water_flow_rate text,
     has_filter boolean DEFAULT false,
-    is_osm boolean DEFAULT true
+    is_osm boolean DEFAULT true,
 );
 
 -- 2. Tabella per le fontanelle inserite dagli utenti
@@ -297,24 +299,24 @@ async function syncOsmToSupabase() {
   area["name"="Dublin"]["admin_level"="8"]->.r;
 );
 (
-  node["amenity"="drinking_water"](area.a);
-  node["amenity"="drinking_water"](area.b);
-  node["amenity"="drinking_water"](area.c);
-  node["amenity"="drinking_water"](area.d);
-  node["amenity"="drinking_water"](area.e);
-  node["amenity"="drinking_water"](area.f);
-  node["amenity"="drinking_water"](area.g);
-  node["amenity"="drinking_water"](area.h);
-  node["amenity"="drinking_water"](area.i);
-  node["amenity"="drinking_water"](area.j);
-  node["amenity"="drinking_water"](area.k);
-  node["amenity"="drinking_water"](area.l);
-  node["amenity"="drinking_water"](area.m);
-  node["amenity"="drinking_water"](area.n);
-  node["amenity"="drinking_water"](area.o);
-  node["amenity"="drinking_water"](area.p);
-  node["amenity"="drinking_water"](area.q);
-  node["amenity"="drinking_water"](area.r);
+  node["amenity"="drinking_water"](area.a); node["amenity"="toilets"](area.a);
+  node["amenity"="drinking_water"](area.b); node["amenity"="toilets"](area.b);
+  node["amenity"="drinking_water"](area.c); node["amenity"="toilets"](area.c);
+  node["amenity"="drinking_water"](area.d); node["amenity"="toilets"](area.d);
+  node["amenity"="drinking_water"](area.e); node["amenity"="toilets"](area.e);
+  node["amenity"="drinking_water"](area.f); node["amenity"="toilets"](area.f);
+  node["amenity"="drinking_water"](area.g); node["amenity"="toilets"](area.g);
+  node["amenity"="drinking_water"](area.h); node["amenity"="toilets"](area.h);
+  node["amenity"="drinking_water"](area.i); node["amenity"="toilets"](area.i);
+  node["amenity"="drinking_water"](area.j); node["amenity"="toilets"](area.j);
+  node["amenity"="drinking_water"](area.k); node["amenity"="toilets"](area.k);
+  node["amenity"="drinking_water"](area.l); node["amenity"="toilets"](area.l);
+  node["amenity"="drinking_water"](area.m); node["amenity"="toilets"](area.m);
+  node["amenity"="drinking_water"](area.n); node["amenity"="toilets"](area.n);
+  node["amenity"="drinking_water"](area.o); node["amenity"="toilets"](area.o);
+  node["amenity"="drinking_water"](area.p); node["amenity"="toilets"](area.p);
+  node["amenity"="drinking_water"](area.q); node["amenity"="toilets"](area.q);
+  node["amenity"="drinking_water"](area.r); node["amenity"="toilets"](area.r);
 );
 out body;`;
   const features = [];
@@ -330,10 +332,16 @@ out body;`;
         const lat = Number(el.lat);
         const lng = Number(el.lon);
         const resolved = findNearestEuropeanCityServer(lat, lng);
+        const currentAmenity = el.tags?.amenity === "toilets" ? "toilets" : "drinking_water";
         let name = el.tags?.name || el.tags?.description;
         if (!name) {
-          if (el.tags?.operator) name = `Fontanella (${el.tags.operator})`;
-          else name = `Fontanella Potabile ${resolved.city}`;
+          if (currentAmenity === "toilets") {
+            if (el.tags?.operator) name = `Bagno Pubblico (${el.tags.operator})`;
+            else name = `Bagno Pubblico ${resolved.city}`;
+          } else {
+            if (el.tags?.operator) name = `Fontanella (${el.tags.operator})`;
+            else name = `Fontanella Potabile ${resolved.city}`;
+          }
         }
         let address = el.tags?.["addr:street"];
         if (address) {
@@ -346,7 +354,7 @@ out body;`;
           type: "Feature",
           properties: {
             "@id": `node/${el.id}`,
-            "amenity": "drinking_water",
+            "amenity": currentAmenity,
             "name": name,
             "city": resolved.city,
             "address": address,
@@ -383,14 +391,15 @@ out body;`;
           address: feature.properties.address,
           status: "working",
           waterType: "potabile",
-          description: feature.properties.description || "Infrastruttura idrica registrata da OpenStreetMap",
+          description: feature.properties.description || (feature.properties.amenity === "toilets" ? "Bagno pubblico registrato da OpenStreetMap" : "Infrastruttura idrica registrata da OpenStreetMap"),
           addedBy: "OpenStreetMap",
           rating: 3,
           photos: [],
           reports: [],
           createdAt: (/* @__PURE__ */ new Date()).toISOString(),
           city: feature.properties.city,
-          isOsm: true
+          isOsm: true,
+          amenity: feature.properties.amenity || "drinking_water"
         });
       });
       const chunkSize = 100;
