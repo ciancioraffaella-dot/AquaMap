@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { Fountain, FountainStatus, FountainFilter } from '../types';
-import { Locate, Navigation, Plus, Compass } from 'lucide-react';
+import { Navigation } from 'lucide-react';
 import { formatReverseGeocodeAddress } from '../supabaseClient';
 
 interface FountainMapProps {

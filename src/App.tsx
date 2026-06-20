@@ -6,7 +6,7 @@ import FountainDetail from './components/FountainDetail';
 import AddFountainModal from './components/AddFountainModal';
 import { CITIES } from './data/seedData';
 import { Fountain, FountainFilter, FountainStatus, WaterType, Report } from './types';
-import { Map as MapIcon, List, Droplet, Plus, Compass, Info, Heart, HelpCircle, X, Search, MapPin, RefreshCw } from 'lucide-react';
+import { Map as MapIcon, List, Droplet, Plus, Info, Heart, HelpCircle, X, Search, MapPin, RefreshCw } from 'lucide-react';
 import { fetchFountains, insertFountain, submitReport, formatReverseGeocodeAddress, syncOsmClientSide, findNearestEuropeanCity } from './supabaseClient';
 
 const sanitizeId = (id: any): string => {
