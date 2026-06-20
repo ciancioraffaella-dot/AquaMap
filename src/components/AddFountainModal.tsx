@@ -4,6 +4,7 @@ import { X, MapPin, Camera, AlertOctagon, CornerDownRight, Compass } from 'lucid
 
 interface AddFountainModalProps {
   coordinates: { lat: number; lng: number; address: string } | null;
+  defaultAmenity?: 'drinking_water' | 'toilets';
   onClose: () => void;
   onSave: (data: {
     name: string;
@@ -18,10 +19,12 @@ interface AddFountainModalProps {
     hasFilter: boolean;
     photo: string | null;
     addedBy: string;
+    amenity: 'drinking_water' | 'toilets';
   }) => void;
 }
 
-export default function AddFountainModal({ coordinates, onClose, onSave }: AddFountainModalProps) {
+export default function AddFountainModal({ coordinates, defaultAmenity, onClose, onSave }: AddFountainModalProps) {
+  const [amenity, setAmenity] = useState<'drinking_water' | 'toilets'>(defaultAmenity || 'drinking_water');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [address, setAddress] = useState('');
@@ -136,20 +139,26 @@ export default function AddFountainModal({ coordinates, onClose, onSave }: AddFo
       hasFilter,
       photo: photoBase64,
       addedBy: addedBy || 'Anonimo',
+      amenity,
     });
   };
 
   return (
     <div className="flex flex-col h-full bg-natural-bg text-natural-dark shadow-2xl relative select-none">
       {/* Header */}
-      <div className="p-4 border-b border-natural-border flex items-center justify-between bg-brand text-white shrink-0">
+      <div className={`p-4 border-b border-natural-border flex items-center justify-between transition-colors duration-350 shrink-0 text-white ${
+        amenity === 'toilets' ? 'bg-indigo-600' : 'bg-emerald-600'
+      }`}>
         <div className="flex items-center gap-2">
           <Compass className="w-5 h-5 animate-spin" style={{ animationDuration: '8s' }} />
-          <h2 className="text-sm font-serif font-bold tracking-tight">Inserisci Nuova Fontanella</h2>
+          <h2 className="text-sm font-serif font-bold tracking-tight">
+            {amenity === 'toilets' ? 'Inserisci Nuovo Bagno Pubblico' : 'Inserisci Nuova Fontanella'}
+          </h2>
         </div>
         <button
           onClick={onClose}
-          className="p-1 rounded-lg hover:bg-brand-hover text-natural-light hover:text-white transition-all cursor-pointer"
+          type="button"
+          className="p-1 rounded-lg hover:bg-black/10 text-natural-light hover:text-white transition-all cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
@@ -157,6 +166,49 @@ export default function AddFountainModal({ coordinates, onClose, onSave }: AddFo
 
       {/* Form Content */}
       <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 space-y-4">
+        {/* Service Selector Block */}
+        <div className="bg-white rounded-2xl p-4 border border-natural-border space-y-2">
+          <label className="block text-xxs font-bold uppercase text-natural-muted tracking-wider">
+            Tipologia Servizio da Inserire *
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setAmenity('drinking_water');
+                if (!name || name === 'Bagno Pubblico') {
+                  setName('');
+                }
+              }}
+              className={`py-2 px-1 text-center text-xs font-bold rounded-xl border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                amenity === 'drinking_water'
+                  ? 'bg-emerald-600 border-emerald-600 text-white shadow-md'
+                  : 'bg-white border-natural-border hover:bg-natural-light text-natural-dark'
+              }`}
+            >
+              <span>⛲</span>
+              <span>Fontanella</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAmenity('toilets');
+                if (!name || name === 'Fontanella' || name === '') {
+                  setName('Bagno Pubblico');
+                }
+              }}
+              className={`py-2 px-1 text-center text-xs font-bold rounded-xl border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                amenity === 'toilets'
+                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-md'
+                  : 'bg-white border-natural-border hover:bg-natural-light text-natural-dark'
+              }`}
+            >
+              <span>🚻</span>
+              <span>Bagno Pubblico</span>
+            </button>
+          </div>
+        </div>
+
         {/* Coordinates Preview */}
         <div className="bg-white rounded-2xl p-4 border border-natural-border text-xs text-natural-dark flex flex-col gap-1">
           <div className="flex items-center gap-1 font-semibold text-brand">
@@ -173,14 +225,14 @@ export default function AddFountainModal({ coordinates, onClose, onSave }: AddFo
         {/* Name input */}
         <div>
           <label className="block text-xxs font-bold uppercase text-natural-muted tracking-wider mb-1.5">
-            Nome della Fontanella *
+            {amenity === 'toilets' ? 'Nome del Bagno Pubblico *' : 'Nome della Fontanella *'}
           </label>
           <input
             type="text"
             required
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="es. Nasone di Via Condotti, Toret Piazza Bernini..."
+            placeholder={amenity === 'toilets' ? 'es. Bagno Pubblico di Villa Borghese, Toilette Stazione' : 'es. Nasone di Via Condotti, Toret Piazza Bernini...'}
             className="w-full text-sm border border-natural-border/70 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition-all bg-white text-natural-dark"
           />
         </div>
@@ -229,41 +281,43 @@ export default function AddFountainModal({ coordinates, onClose, onSave }: AddFo
         </div>
 
         {/* Water Type & Flow speed */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xxs font-bold uppercase text-natural-muted tracking-wider mb-1.5">
-              Tipologia Acqua
-            </label>
-            <select
-              value={waterType}
-              onChange={(e) => setWaterType(e.target.value as WaterType)}
-              className="w-full text-sm border border-natural-border/70 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition-all bg-white text-natural-dark cursor-pointer"
-            >
-              <option value="potabile">💧 Potabile</option>
-              <option value="frizzante">✨ Frizzante / Casa dell&apos;Acqua</option>
-              <option value="non_potabile">⛔ Non Potabile</option>
-            </select>
+        {amenity !== 'toilets' && (
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xxs font-bold uppercase text-natural-muted tracking-wider mb-1.5">
+                Tipologia Acqua
+              </label>
+              <select
+                value={waterType}
+                onChange={(e) => setWaterType(e.target.value as WaterType)}
+                className="w-full text-sm border border-natural-border/70 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition-all bg-white text-natural-dark cursor-pointer"
+              >
+                <option value="potabile">💧 Potabile</option>
+                <option value="frizzante">✨ Frizzante / Casa dell&apos;Acqua</option>
+                <option value="non_potabile">⛔ Non Potabile</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xxs font-bold uppercase text-natural-muted tracking-wider mb-1.5">
+                Portata del Getto
+              </label>
+              <select
+                value={flowRate}
+                onChange={(e) => setFlowRate(e.target.value as 'low' | 'medium' | 'high')}
+                className="w-full text-sm border border-natural-border/70 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition-all bg-white text-natural-dark cursor-pointer"
+              >
+                <option value="low">💧 Debole</option>
+                <option value="medium">🕒 Normale</option>
+                <option value="high">⚡ Forte / Abbondante</option>
+              </select>
+            </div>
           </div>
-          <div>
-            <label className="block text-xxs font-bold uppercase text-natural-muted tracking-wider mb-1.5">
-              Portata del Getto
-            </label>
-            <select
-              value={flowRate}
-              onChange={(e) => setFlowRate(e.target.value as 'low' | 'medium' | 'high')}
-              className="w-full text-sm border border-natural-border/70 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition-all bg-white text-natural-dark cursor-pointer"
-            >
-              <option value="low">💧 Debole</option>
-              <option value="medium">🕒 Normale</option>
-              <option value="high">⚡ Forte / Abbondante</option>
-            </select>
-          </div>
-        </div>
+        )}
 
         {/* Status segment control */}
         <div>
           <label className="block text-xxs font-bold uppercase text-natural-muted tracking-wider mb-2">
-            Stato Attuale della Fontanella *
+            {amenity === 'toilets' ? 'Stato Attuale del Bagno Pubblico *' : 'Stato Attuale della Fontanella *'}
           </label>
           <div className="grid grid-cols-3 gap-2">
             <button
@@ -286,7 +340,7 @@ export default function AddFountainModal({ coordinates, onClose, onSave }: AddFo
                   : 'bg-white border-natural-border text-natural-dark hover:bg-natural-light'
               } cursor-pointer`}
             >
-              🟡 Secca / Chiara
+              {amenity === 'toilets' ? '🟡 Chiuso' : '🟡 Secca / Chiara'}
             </button>
             <button
               type="button"
@@ -297,31 +351,33 @@ export default function AddFountainModal({ coordinates, onClose, onSave }: AddFo
                   : 'bg-white border-natural-border text-natural-dark hover:bg-natural-light'
               } cursor-pointer`}
             >
-              🔴 Rotta
+              {amenity === 'toilets' ? '🔴 Guasto' : '🔴 Rotta'}
             </button>
           </div>
         </div>
 
         {/* Toggle option for filters */}
-        <div className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-natural-border">
-          <div>
-            <span className="text-xs font-bold text-natural-dark block">Filtri di Purificazione</span>
-            <span className="text-[10px] text-natural-muted font-medium block">Ha un sistema integrato attivo di depurazione o refrigerazione?</span>
+        {amenity !== 'toilets' && (
+          <div className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-natural-border">
+            <div>
+              <span className="text-xs font-bold text-natural-dark block">Filtri di Purificazione</span>
+              <span className="text-[10px] text-natural-muted font-medium block">Ha un sistema integrato attivo di depurazione o refrigerazione?</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setHasFilter(!hasFilter)}
+              className={`w-11 h-6 rounded-full transition-all relative shrink-0 ${
+                hasFilter ? 'bg-brand' : 'bg-natural-border'
+              } cursor-pointer`}
+            >
+              <span
+                className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transform transition-all ${
+                  hasFilter ? 'left-[22px]' : 'left-0.5'
+                }`}
+              />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setHasFilter(!hasFilter)}
-            className={`w-11 h-6 rounded-full transition-all relative shrink-0 ${
-              hasFilter ? 'bg-brand' : 'bg-natural-border'
-            } cursor-pointer`}
-          >
-            <span
-              className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transform transition-all ${
-                hasFilter ? 'left-[22px]' : 'left-0.5'
-              }`}
-            />
-          </button>
-        </div>
+        )}
 
         {/* Detailed description */}
         <div>
@@ -405,9 +461,13 @@ export default function AddFountainModal({ coordinates, onClose, onSave }: AddFo
           </button>
           <button
             type="submit"
-            className="flex-1 py-2.5 bg-brand hover:bg-brand-hover text-white text-xs font-bold rounded-xl shadow-md shadow-[#5a5a4025] transition-all active:scale-98 cursor-pointer"
+            className={`flex-1 py-2.5 text-white text-xs font-bold rounded-xl shadow-md transition-all active:scale-98 cursor-pointer ${
+              amenity === 'toilets'
+                ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/20'
+                : 'bg-brand hover:bg-brand-hover shadow-brand/20'
+            }`}
           >
-            Pubblica Fontanella
+            {amenity === 'toilets' ? 'Pubblica Bagno Pubblico' : 'Pubblica Fontanella'}
           </button>
         </div>
       </form>

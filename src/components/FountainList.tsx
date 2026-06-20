@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Fountain, FountainFilter, FountainStatus, WaterType } from '../types';
 import { CITIES } from '../data/seedData';
-import { Search, Filter, Droplet, Star, MapPin, Eye, Compass, ThumbsUp, RefreshCw } from 'lucide-react';
+import { Search, Filter, Droplet, Star, MapPin, Eye, Compass, ThumbsUp, RefreshCw, Plus } from 'lucide-react';
 
 interface FountainListProps {
   fountains: Fountain[];
@@ -12,6 +12,7 @@ interface FountainListProps {
   userLocation: { lat: number; lng: number } | null;
   onSelectCity: (cityValue: string) => void;
   onRefreshOsm?: () => Promise<void>;
+  onAddClick?: () => void;
 }
 
 // Haversine formula to compute distance in meters
@@ -46,6 +47,7 @@ export default function FountainList({
   userLocation,
   onSelectCity,
   onRefreshOsm,
+  onAddClick,
 }: FountainListProps) {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -137,10 +139,15 @@ export default function FountainList({
     // City match
     const matchesCity = filters.city === 'all' || f.city === filters.city;
 
+    // Amenity match
+    const matchesAmenity = filters.amenity === 'all' || 
+                           f.amenity === filters.amenity || 
+                           (filters.amenity === 'drinking_water' && !f.amenity);
+
     // If 'only nearby' is selected, distance must be within a threshold (e.g., 20km) and userLocation must exist
     const matchesNearby = !filters.onlyNearby || (f.distance !== undefined && f.distance <= 20000);
 
-    return matchesSearch && matchesStatus && matchesWaterType && matchesCity && matchesNearby;
+    return matchesSearch && matchesStatus && matchesWaterType && matchesCity && matchesNearby && matchesAmenity;
   });
 
   // Sort: If user location is active, sort by distance. Otherwise, sort by rating and city
@@ -172,20 +179,35 @@ export default function FountainList({
           </div>
         </div>
 
-        {onRefreshOsm && (
-          <button
-            onClick={handleSyncOsm}
-            disabled={isSyncing}
-            className={`p-2 rounded-xl border border-natural-border text-natural-muted hover:text-brand hover:border-brand-hover/40 bg-white hover:bg-brand-light/30 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-bold ${
-              isSyncing ? 'opacity-85 pointer-events-none' : ''
-            }`}
-            title="Sincronizza fontanelle da OpenStreetMap (OSM) su Supabase"
-            id="btn-sync-osm"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-brand' : ''}`} />
-            <span>{isSyncing ? 'Sincronizzazione...' : 'Sincronizza OSM'}</span>
-          </button>
-        )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {onAddClick && (
+            <button
+              onClick={onAddClick}
+              className="p-2 px-3 rounded-xl bg-brand text-white border border-brand hover:bg-brand-hover transition-all cursor-pointer flex items-center gap-1 text-xs font-extrabold shadow-sm active:scale-95"
+              title="Aggiungi una nuova fontanella o un bagno pubblico"
+              type="button"
+              id="btn-add-service-header"
+            >
+              <Plus className="w-3.5 h-3.5 text-white" />
+              <span>Aggiungi</span>
+            </button>
+          )}
+
+          {onRefreshOsm && (
+            <button
+              onClick={handleSyncOsm}
+              disabled={isSyncing}
+              className={`p-2 rounded-xl border border-natural-border text-natural-muted hover:text-brand hover:border-brand-hover/40 bg-white hover:bg-brand-light/30 transition-all cursor-pointer flex items-center gap-1 text-xs font-bold ${
+                isSyncing ? 'opacity-85 pointer-events-none' : ''
+              }`}
+              title="Sincronizza fontanelle da OpenStreetMap (OSM) su Supabase"
+              id="btn-sync-osm"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-brand' : ''}`} />
+              <span>{isSyncing ? '...' : 'OSM'}</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Primary Search Controls */}
@@ -212,6 +234,35 @@ export default function FountainList({
             <Filter className="w-4 h-4" />
             <span className="hidden sm:inline">Filtri</span>
           </button>
+        </div>
+
+        {/* Quick Amenity Service Filter Segment Tab */}
+        <div className="grid grid-cols-3 gap-1.5 mt-3 select-none">
+          {([
+            { id: 'all', label: 'Tutti', icon: '🌍' },
+            { id: 'drinking_water', label: 'Fontanelle', icon: '⛲' },
+            { id: 'toilets', label: 'Bagni', icon: '🚻' }
+          ] as const).map((item) => {
+            const isSelected = filters.amenity === item.id || (item.id === 'all' && !filters.amenity);
+            return (
+              <button
+                key={item.id}
+                onClick={() => setFilters({ ...filters, amenity: item.id })}
+                className={`py-2 px-1 text-center text-xs font-bold rounded-xl border transition-all flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap leading-none ${
+                  isSelected
+                    ? item.id === 'toilets'
+                      ? 'bg-indigo-600 border-indigo-600 text-white shadow-md'
+                      : item.id === 'drinking_water'
+                      ? 'bg-emerald-600 border-emerald-600 text-white shadow-md'
+                      : 'bg-brand border-brand text-white shadow-md'
+                    : 'bg-white border-natural-border/60 text-natural-dark hover:bg-natural-light'
+                }`}
+              >
+                <span>{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Advanced Filters Drawer */}
@@ -377,12 +428,14 @@ export default function FountainList({
             <div className="w-16 h-16 rounded-full bg-natural-light flex items-center justify-center text-natural-muted mb-4 shadow-sm border border-natural-border/30">
               <Compass className="w-8 h-8 text-natural-muted animate-spin" style={{ animationDuration: '8s' }} />
             </div>
-            <h4 className="font-serif font-semibold text-natural-dark text-base">Nessuna fontanella trovata</h4>
+            <h4 className="font-serif font-semibold text-natural-dark text-base">
+              {filters.amenity === 'toilets' ? 'Nessun bagno pubblico disponibile' : 'Nessuna fontanella trovata'}
+            </h4>
             <p className="mt-1.5 text-xs text-natural-muted leading-relaxed">
               Prova a cambiare città, digitare un indirizzo diverso o ad azzerare i filtri di ricerca nel menù.
             </p>
             <button
-              onClick={() => setFilters({ searchQuery: '', status: 'all', waterType: 'all', onlyNearby: false, city: 'all' })}
+              onClick={() => setFilters({ searchQuery: '', status: 'all', waterType: 'all', onlyNearby: false, city: 'all', amenity: 'all' })}
               className="mt-4 text-xs font-semibold text-brand hover:text-brand-hover px-4 py-2 bg-natural-light hover:bg-natural-border/20 rounded-xl transition-colors border border-natural-border/60 cursor-pointer"
             >
               Azzera tutti i filtri
@@ -393,9 +446,9 @@ export default function FountainList({
 
       {/* Quick stats banner in Footer */}
       <div className="p-3 bg-brand text-natural-light border-t border-brand-hover shrink-0 text-[10px] flex items-center justify-between font-medium select-none uppercase tracking-wider">
-        <span className="opacity-90">{fountains.length} Fontanelle Censite</span>
+        <span className="opacity-90">{fountains.length} Servizi Censiti</span>
         <span className="font-bold text-white bg-brand-hover/80 py-0.5 px-2.5 rounded-full border border-white/10">
-          {fountains.filter(f => f.status === 'working').length} attive
+          {fountains.filter(f => f.status === 'working').length} attivi
         </span>
       </div>
     </div>

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
-import { Fountain, FountainStatus } from '../types';
+import { Fountain, FountainStatus, FountainFilter } from '../types';
 import { Locate, Navigation, Plus, Compass } from 'lucide-react';
 import { formatReverseGeocodeAddress } from '../supabaseClient';
 
@@ -14,6 +14,10 @@ interface FountainMapProps {
   userLocation: { lat: number; lng: number } | null;
   setUserLocation: (loc: { lat: number; lng: number }) => void;
   onBoundsChange?: (bounds: { latMin: number; latMax: number; lngMin: number; lngMax: number }) => void;
+  filters?: FountainFilter;
+  setFilters?: React.Dispatch<React.SetStateAction<FountainFilter>>;
+  isMapAddActive?: boolean;
+  setIsMapAddActive?: (val: boolean) => void;
 }
 
 export default function FountainMap({
@@ -26,6 +30,10 @@ export default function FountainMap({
   userLocation,
   setUserLocation,
   onBoundsChange,
+  filters,
+  setFilters,
+  isMapAddActive = false,
+  setIsMapAddActive,
 }: FountainMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -36,28 +44,47 @@ export default function FountainMap({
   const [addressLoading, setAddressLoading] = useState(false);
   const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
 
+  const isMapAddActiveRef = useRef(isMapAddActive);
+  useEffect(() => {
+    isMapAddActiveRef.current = isMapAddActive;
+  }, [isMapAddActive]);
+
   // Helper to construct SVG markers for different fountain states
-  const createCustomIcon = (status: FountainStatus, isActive: boolean) => {
+  const createCustomIcon = (status: FountainStatus, isActive: boolean, amenity?: string) => {
+    const isToilets = amenity === 'toilets';
     let bgColor = 'bg-brand';
     let ringStyle = isActive ? 'ring-4 ring-brand scale-115 z-[1000]' : 'hover:scale-110';
     let iconHtml = '';
 
-    if (status === 'working') {
-      bgColor = 'bg-emerald-600';
+    if (isToilets) {
+      bgColor = 'bg-indigo-600';
+      ringStyle = isActive ? 'ring-4 ring-indigo-500 scale-115 z-[1000]' : 'hover:scale-110';
+      if (status === 'broken') {
+        bgColor = 'bg-rose-600';
+      } else if (status === 'dry') {
+        bgColor = 'bg-amber-600';
+      }
       iconHtml = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-white animate-pulse"><path d="M12 22a7 7 0 0 0 7-7c0-4.3-7-11-7-11S5 10.7 5 15a7 7 0 0 0 7 7z"/></svg>
-      `;
-    } else if (status === 'dry') {
-      bgColor = 'bg-amber-600';
-      iconHtml = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-white"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9.1 9.1a7 7 0 0 0 9.9 9.9"/><path d="m14.9 14.9 2.1-3.9s-7-11-7-11S5 10.7 5 15a7 7 0 0 0 1.2 3.9"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-white"><path d="M7 21v-6H5v-5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v5H9v6z"/><circle cx="8" cy="5" r="1"/><path d="M16 21v-5h1v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4h1v5z"/><circle cx="15" cy="5" r="1"/></svg>
       `;
     } else {
-      // broken
-      bgColor = 'bg-rose-600';
-      iconHtml = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-white"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-      `;
+      if (status === 'working') {
+        bgColor = 'bg-emerald-600';
+        iconHtml = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-white animate-pulse"><path d="M12 22a7 7 0 0 0 7-7c0-4.3-7-11-7-11S5 10.7 5 15a7 7 0 0 0 7 7z"/></svg>
+        `;
+      } else if (status === 'dry') {
+        bgColor = 'bg-amber-600';
+        iconHtml = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-white"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9.1 9.1a7 7 0 0 0 9.9 9.9"/><path d="m14.9 14.9 2.1-3.9s-7-11-7-11S5 10.7 5 15a7 7 0 0 0 1.2 3.9"/></svg>
+        `;
+      } else {
+        // broken
+        bgColor = 'bg-rose-600';
+        iconHtml = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-white"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        `;
+      }
     }
 
     return L.divIcon({
@@ -103,6 +130,11 @@ export default function FountainMap({
 
     // Handle map click for registering new fountains
     map.on('click', async (e: L.LeafletMouseEvent) => {
+      if (!isMapAddActiveRef.current) {
+        onSelectFountain(null);
+        return;
+      }
+
       const { lat, lng } = e.latlng;
       setAddressLoading(true);
       let addressStr = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
@@ -199,7 +231,7 @@ export default function FountainMap({
     visibleFountains.forEach((fountain) => {
       const isActive = fountain.id === selectedFountainId;
       const marker = L.marker([fountain.lat, fountain.lng], {
-        icon: createCustomIcon(fountain.status, isActive),
+        icon: createCustomIcon(fountain.status, isActive, fountain.amenity),
       });
 
       // Interactive popup
@@ -236,24 +268,25 @@ export default function FountainMap({
           duration: 1.2
         });
 
-        // Add or update live position pulsing marker (using matching earthy brand highlight)
+        // Add or update live position pulsing marker (using premium blue GPS dot with surrounding pulse glow)
         if (userMarkerRef.current) {
           userMarkerRef.current.setLatLng([latitude, longitude]);
         } else {
           const userIcon = L.divIcon({
             html: `
-              <div class="relative flex items-center justify-center w-6 h-6 border-2 border-white rounded-full bg-[#5a5a40] shadow-lg pulse-primary">
-                <div class="w-2.5 h-2.5 bg-white rounded-full"></div>
+              <div class="relative flex items-center justify-center">
+                <div class="absolute w-7 h-7 bg-blue-500 rounded-full opacity-30 animate-ping"></div>
+                <div class="relative w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-lg"></div>
               </div>
             `,
             className: 'user-pulse-marker',
-            iconSize: [24, 24],
-            iconAnchor: [12, 12]
+            iconSize: [28, 28],
+            iconAnchor: [14, 14]
           });
 
           userMarkerRef.current = L.marker([latitude, longitude], { icon: userIcon })
             .addTo(mapRef.current!)
-            .bindPopup('<strong class="text-xs font-serif text-natural-dark">La tua posizione</strong>', { offset: [0, -10] });
+            .bindPopup('<strong class="text-xs text-brand font-bold select-none">La tua posizione</strong>', { offset: [0, -6] });
         }
       },
       (error) => {
@@ -269,13 +302,24 @@ export default function FountainMap({
     );
   };
 
+  // Auto-centering user location on map ready
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (mapRef.current) {
+        handleGPSLocation();
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
     <div id="map-wrap" className="relative w-full h-full min-h-[300px] md:min-h-0 bg-natural-bg flex-1 h-[45vh] md:h-full overflow-hidden">
       {/* Target Container for Leaflet */}
       <div ref={mapContainerRef} className="w-full h-full z-10" />
 
-      {/* Geolocalize floating button */}
+      {/* Action Buttons floating on map in the top right corner */}
       <div className="absolute top-4 right-4 z-20 flex flex-col gap-2">
+        {/* GPS location button */}
         <button
           onClick={handleGPSLocation}
           id="btn-localize"
@@ -291,18 +335,65 @@ export default function FountainMap({
         </button>
       </div>
 
-      {/* Help Banner at the Top Middle of the map */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 max-w-xs md:max-w-md w-max bg-brand/90 backdrop-blur-md px-4 py-2 rounded-2xl shadow-xl border border-brand-hover/40 flex items-center gap-2 text-white pointer-events-none text-xs md:text-sm">
-        <Compass className="w-4 h-4 text-brand-light shrink-0" />
-        <span className="font-medium text-natural-light">
-          Tocca la mappa per aggiungere una fontanella
-        </span>
-      </div>
+      {/* Help Banner at the Top Middle of the map only during active placing */}
+      {isMapAddActive && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 max-w-xs md:max-w-md w-max bg-emerald-600/95 backdrop-blur-md px-4 py-2.5 rounded-2xl shadow-xl border border-emerald-500/30 flex items-center gap-2 text-white text-xs md:text-sm animate-pulse">
+          <span className="text-sm">📍</span>
+          <span className="font-bold text-white leading-normal">
+            Tocca la mappa nel punto esatto per posizionare!
+          </span>
+          <button
+            onClick={() => setIsMapAddActive && setIsMapAddActive(false)}
+            className="ml-1 bg-black/30 hover:bg-black/50 text-white hover:text-rose-200 text-[10px] font-black px-2 py-0.5 rounded-md transition-colors cursor-pointer"
+          >
+            ANNULLA
+          </button>
+        </div>
+      )}
 
       {addressLoading && (
         <div className="absolute bottom-20 left-4 z-20 bg-white shadow-xl rounded-xl px-4 py-3 flex items-center gap-3 border border-natural-border text-natural-dark text-xs font-semibold">
           <div className="w-4 h-4 border-2 border-brand border-t-transparent rounded-full animate-spin"></div>
           <span>Acquisizione indirizzo...</span>
+        </div>
+      )}
+
+      {/* Floating Filter Selector over the Map */}
+      {filters && setFilters && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 bg-white/95 backdrop-blur-md p-1 rounded-2xl shadow-xl border border-natural-border flex items-center gap-1 whitespace-nowrap">
+          <button
+            onClick={() => setFilters(prev => ({ ...prev, amenity: 'all' }))}
+            className={`px-3 py-1.5 rounded-xl text-[11px] md:text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
+              filters.amenity === 'all'
+                ? 'bg-brand text-white'
+                : 'text-natural-dark hover:bg-natural-light border border-transparent'
+            }`}
+          >
+            <span>🌍</span>
+            <span>Tutti</span>
+          </button>
+          <button
+            onClick={() => setFilters(prev => ({ ...prev, amenity: 'drinking_water' }))}
+            className={`px-3 py-1.5 rounded-xl text-[11px] md:text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
+              filters.amenity === 'drinking_water'
+                ? 'bg-emerald-600 text-white'
+                : 'text-natural-dark hover:bg-natural-light border border-transparent'
+            }`}
+          >
+            <span>⛲</span>
+            <span>Fontanelle</span>
+          </button>
+          <button
+            onClick={() => setFilters(prev => ({ ...prev, amenity: 'toilets' }))}
+            className={`px-3 py-1.5 rounded-xl text-[11px] md:text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
+              filters.amenity === 'toilets'
+                ? 'bg-indigo-600 text-white'
+                : 'text-natural-dark hover:bg-natural-light border border-transparent'
+            }`}
+          >
+            <span>🚻</span>
+            <span>Bagni</span>
+          </button>
         </div>
       )}
 

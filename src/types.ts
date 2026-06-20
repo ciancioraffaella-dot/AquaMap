@@ -33,6 +33,7 @@ export interface Fountain {
   waterFlowRate?: 'high' | 'medium' | 'low'; // Portata d'acqua
   hasFilter?: boolean; // Se ha filtri purificatori
   isOsm?: boolean; // True if sourced from OpenStreetMap
+  amenity?: 'drinking_water' | 'toilets'; // Special tipologia di servizio
 }
 
 export interface FountainFilter {
@@ -41,4 +42,5 @@ export interface FountainFilter {
   waterType: WaterType | 'all';
   onlyNearby: boolean;
   city: string | 'all';
+  amenity: 'all' | 'drinking_water' | 'toilets';
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import FountainMap from './components/FountainMap';
 import FountainList from './components/FountainList';
@@ -6,7 +6,7 @@ import FountainDetail from './components/FountainDetail';
 import AddFountainModal from './components/AddFountainModal';
 import { CITIES } from './data/seedData';
 import { Fountain, FountainFilter, FountainStatus, WaterType, Report } from './types';
-import { Map as MapIcon, List, Droplet, Plus, Compass, Info, Heart, HelpCircle, X } from 'lucide-react';
+import { Map as MapIcon, List, Droplet, Plus, Compass, Info, Heart, HelpCircle, X, Search, MapPin, RefreshCw } from 'lucide-react';
 import { fetchFountains, insertFountain, submitReport, formatReverseGeocodeAddress, syncOsmClientSide, findNearestEuropeanCity } from './supabaseClient';
 
 const sanitizeId = (id: any): string => {
@@ -40,7 +40,22 @@ export default function App() {
     waterType: 'all',
     onlyNearby: false,
     city: 'all',
+    amenity: 'all',
   });
+
+  // State to track if the map click is active for placing a service
+  const [isMapAddActive, setIsMapAddActive] = useState(false);
+
+  // Automatically align selected menu amenity with active map filter when placing is activated
+  useEffect(() => {
+    if (isMapAddActive) {
+      if (filters.amenity === 'toilets') {
+        setAddMenuAmenity('toilets');
+      } else if (filters.amenity === 'drinking_water') {
+        setAddMenuAmenity('drinking_water');
+      }
+    }
+  }, [isMapAddActive, filters.amenity]);
 
   // Mobile navigation views: 'map' vs 'list' toggle
   const [activeView, setActiveView] = useState<'map' | 'list'>('map');
@@ -58,6 +73,17 @@ export default function App() {
 
   // Address and coordinates when map is clicked to add a new fountain
   const [addCoords, setAddCoords] = useState<{ lat: number; lng: number; address: string } | null>(null);
+
+  // Dedicated menu state for inserting new amenities
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [addMenuStep, setAddMenuStep] = useState<'selection' | 'address'>('selection');
+  const [addMenuAmenity, setAddMenuAmenity] = useState<'drinking_water' | 'toilets'>('drinking_water');
+  
+  // Geolevel address fields
+  const [typedAddress, setTypedAddress] = useState('');
+  const [typedCity, setTypedCity] = useState('');
+  const [geocodingLoading, setGeocodingLoading] = useState(false);
+  const [geocodingError, setGeocodingError] = useState<string | null>(null);
 
   // Show Quick Guide explanation modal
   const [showHowToModal, setShowHowToModal] = useState(false);
@@ -448,6 +474,7 @@ export default function App() {
     hasFilter: boolean;
     photo: string | null;
     addedBy: string;
+    amenity: 'drinking_water' | 'toilets';
   }) => {
     const newFountain: Fountain = {
       id: `f-${Date.now()}`,
@@ -466,6 +493,7 @@ export default function App() {
       city: data.city,
       waterFlowRate: data.flowRate,
       hasFilter: data.hasFilter,
+      amenity: data.amenity,
     };
 
     // Client-side optimistic update
@@ -479,11 +507,61 @@ export default function App() {
       if (savedFountain) {
         // swap state record with confirmed server-supplied db structure
         setFountains((prev) => prev.map(f => f.id === newFountain.id ? savedFountain : f));
-        setToastMessage("Fontanella salvata con successo su Supabase!");
+        setToastMessage(`${data.amenity === 'toilets' ? 'Bagno Pubblico' : 'Fontanella'} salvato con successo su Supabase!`);
       }
     } catch (err) {
       console.warn("Could not save to Supabase. Operating with local localStorage fallback:", err);
     }
+  };
+
+  // geocode address via standard OpenStreetMap Nominatim and open save form
+  const handleAddressGeocoding = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!typedAddress || !typedCity) return;
+    setGeocodingLoading(true);
+    setGeocodingError(null);
+
+    try {
+      const query = `${typedAddress}, ${typedCity}`;
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&accept-language=it`;
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'AquaMapWorldApplication/4.0 (ciancio.raffaella@gmail.com)' }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          const lat = parseFloat(data[0].lat);
+          const lng = parseFloat(data[0].lon);
+          
+          setAddCoords({
+            lat,
+            lng,
+            address: data[0].display_name || `${typedAddress}, ${typedCity}`
+          });
+          
+          setShowAddMenu(false);
+          setTypedAddress('');
+          setTypedCity('');
+        } else {
+          setGeocodingError("Indirizzo non trovato. Verifica la digitazione (es. Via Garibaldi 12, Milano).");
+        }
+      } else {
+        setGeocodingError("Servizio di geocodifica momentaneamente offline, riprova più tardi.");
+      }
+    } catch (err) {
+      console.error("Geocoding exception:", err);
+      setGeocodingError("Impossibile contattare il server di geocodifica.");
+    } finally {
+      setGeocodingLoading(false);
+    }
+  };
+
+  const handleSelectMapClickOption = () => {
+    setShowAddMenu(false);
+    setActiveView('map');
+    setIsMapAddActive(true);
+    setToastMessage(`Tocca un punto qualsiasi sulla mappa per posizionare il servizio: ${addMenuAmenity === 'toilets' ? 'Bagno Pubblico 🚻' : 'Fontanella ⛲'}`);
   };
 
   // Callback to submit a community report
@@ -676,6 +754,10 @@ export default function App() {
             userLocation={userLocation}
             onSelectCity={handleSelectCity}
             onRefreshOsm={handleRefreshOsm}
+            onAddClick={() => {
+              setShowAddMenu(true);
+              setAddMenuStep('selection');
+            }}
           />
         </div>
 
@@ -686,15 +768,38 @@ export default function App() {
           }`}
         >
           <FountainMap
-            fountains={isZoomedOutTooFar ? [] : listFountainsToRender.filter((f) => !f.isOsm)}
-            osmFountains={isZoomedOutTooFar ? [] : listFountainsToRender.filter((f) => f.isOsm)}
+            fountains={isZoomedOutTooFar ? [] : listFountainsToRender.filter((f) => !f.isOsm).filter((f) => {
+              const matchesStatus = filters.status === 'all' || f.status === filters.status;
+              const matchesWaterType = filters.waterType === 'all' || f.waterType === filters.waterType;
+              const matchesCity = filters.city === 'all' || f.city === filters.city;
+              const matchesAmenity = filters.amenity === 'all' || 
+                                     f.amenity === filters.amenity || 
+                                     (filters.amenity === 'drinking_water' && !f.amenity);
+              return matchesStatus && matchesWaterType && matchesCity && matchesAmenity;
+            })}
+            osmFountains={isZoomedOutTooFar ? [] : listFountainsToRender.filter((f) => f.isOsm).filter((f) => {
+              const matchesStatus = filters.status === 'all' || f.status === filters.status;
+              const matchesWaterType = filters.waterType === 'all' || f.waterType === filters.waterType;
+              const matchesCity = filters.city === 'all' || f.city === filters.city;
+              const matchesAmenity = filters.amenity === 'all' || 
+                                     f.amenity === filters.amenity || 
+                                     (filters.amenity === 'drinking_water' && !f.amenity);
+              return matchesStatus && matchesWaterType && matchesCity && matchesAmenity;
+            })}
             selectedFountainId={selectedFountainId}
             onSelectFountain={setSelectedFountainId}
-            onMapClick={setAddCoords}
+            onMapClick={(coords) => {
+              setAddCoords(coords);
+              setIsMapAddActive(false);
+            }}
             centerState={mapCenter}
             userLocation={userLocation}
             setUserLocation={setUserLocation}
             onBoundsChange={setCurrentBounds}
+            filters={filters}
+            setFilters={setFilters}
+            isMapAddActive={isMapAddActive}
+            setIsMapAddActive={setIsMapAddActive}
           />
 
           {/* Desktop header overlay (gives it a floating premium appearance) */}
@@ -704,6 +809,15 @@ export default function App() {
               className="px-4 py-2 bg-brand/90 hover:bg-brand backdrop-blur-md text-white rounded-xl shadow-xl border border-brand-hover/40 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all active:scale-95"
             >
               <HelpCircle className="w-4 h-4 text-brand-light" /> Come funziona?
+            </button>
+            <button
+              onClick={() => {
+                setShowAddMenu(true);
+                setAddMenuStep('selection');
+              }}
+              className="px-4 py-2 bg-emerald-600/95 hover:bg-emerald-600 backdrop-blur-md text-white rounded-xl shadow-xl border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all active:scale-95"
+            >
+              <Plus className="w-4 h-4 text-white" /> Aggiungi Servizio
             </button>
           </div>
         </div>
@@ -733,6 +847,7 @@ export default function App() {
               ) : (
                 <AddFountainModal
                   coordinates={addCoords}
+                  defaultAmenity={addMenuAmenity}
                   onClose={() => setAddCoords(null)}
                   onSave={handleSaveFountain}
                 />
@@ -757,11 +872,11 @@ export default function App() {
         {/* Floating Quick Plus (Tells users to tap on local map directly) */}
         <button
           onClick={() => {
-            setActiveView('map');
-            setToastMessage('Seleziona un punto qualsiasi sulla mappa per impostare la posizione GPS e mappare una fontanella!');
+            setShowAddMenu(true);
+            setAddMenuStep('selection');
           }}
           className="flex items-center justify-center w-11 h-11 bg-brand hover:bg-brand-hover text-white rounded-full shadow-lg shadow-[#5a5a4040] cursor-pointer -mt-6 border-3 border-white transition-transform active:scale-90"
-          title="Aggiungi Fontanella"
+          title="Aggiungi Servizio"
         >
           <Plus className="w-5.5 h-5.5 stroke-[2.5]" />
         </button>
@@ -848,6 +963,191 @@ export default function App() {
               >
                 Inizia l&apos;esplorazione
               </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ADD AMENITY WORKFLOW MENU OVERLAY */}
+      <AnimatePresence>
+        {showAddMenu && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-natural-dark/50 backdrop-blur-xs flex items-center justify-center p-4 z-[9990]"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 15 }}
+              transition={{ type: 'spring', stiffness: 280, damping: 26 }}
+              className="bg-natural-bg rounded-3xl p-6 max-w-md w-full shadow-2xl border border-natural-border text-natural-dark relative"
+            >
+              <button
+                onClick={() => setShowAddMenu(false)}
+                type="button"
+                className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-brand-light text-natural-muted hover:text-natural-dark cursor-pointer transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              {addMenuStep === 'selection' ? (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-xl font-serif font-extrabold tracking-tight text-brand flex items-center gap-2">
+                      <span>⛲</span> Mappa un Servizio
+                    </h2>
+                    <p className="text-xs text-natural-muted mt-1 font-semibold">
+                      Aiuta la community a far crescere i punti acqua e igienici della città!
+                    </p>
+                  </div>
+
+                  {/* Question 1: Quale amenity vuoi inserire? */}
+                  <div className="space-y-2">
+                    <label className="block text-xxs font-bold uppercase text-natural-muted tracking-wider">
+                      1. Quale tipo di servizio vuoi inserire?
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setAddMenuAmenity('drinking_water')}
+                        className={`p-4 rounded-2xl border-2 text-left transition-all cursor-pointer ${
+                          addMenuAmenity === 'drinking_water'
+                            ? 'border-brand bg-brand-light/30 text-brand ring-2 ring-brand/20'
+                            : 'border-natural-border hover:border-brand/40 hover:bg-white text-natural-dark'
+                        }`}
+                      >
+                        <span className="text-2xl block mb-1">⛲</span>
+                        <span className="text-xs font-bold block">Fontanella</span>
+                        <span className="text-[10px] text-natural-muted block mt-0.5 font-medium">Acqua potabile</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setAddMenuAmenity('toilets')}
+                        className={`p-4 rounded-2xl border-2 text-left transition-all cursor-pointer ${
+                          addMenuAmenity === 'toilets'
+                            ? 'border-indigo-600 bg-indigo-50/20 text-indigo-700 ring-2 ring-indigo-600/20'
+                            : 'border-natural-border hover:border-indigo-600/40 hover:bg-white text-natural-dark'
+                        }`}
+                      >
+                        <span className="text-2xl block mb-1">🚻</span>
+                        <span className="text-xs font-bold block">Bagno Pubblico</span>
+                        <span className="text-[10px] text-natural-muted block mt-0.5 font-medium">Servizi igienici</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Question 2: Come la vuoi inserire? */}
+                  <div className="space-y-3">
+                    <label className="block text-xxs font-bold uppercase text-natural-muted tracking-wider">
+                      2. Come lo vuoi inserire?
+                    </label>
+                    
+                    {/* Method 1: Clic su mappa */}
+                    <button
+                      type="button"
+                      onClick={handleSelectMapClickOption}
+                      className="w-full p-4 rounded-2xl border border-natural-border hover:border-brand/60 hover:bg-white text-left transition-all cursor-pointer flex items-center gap-4 group"
+                    >
+                      <div className="w-10 h-10 bg-brand-light/50 group-hover:bg-brand-light rounded-xl flex items-center justify-center text-brand shrink-0">
+                        <MapPin className="w-5 h-5 animate-pulse" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-xs font-bold block text-natural-dark">Clic sulla mappa</span>
+                        <span className="text-[10px] text-natural-muted block mt-0.5 font-medium">Tocca direttamente sulla mappa il punto stradale esatto.</span>
+                      </div>
+                    </button>
+
+                    {/* Method 2: Da indirizzo */}
+                    <button
+                      type="button"
+                      onClick={() => setAddMenuStep('address')}
+                      className="w-full p-4 rounded-2xl border border-natural-border hover:border-brand/60 hover:bg-white text-left transition-all cursor-pointer flex items-center gap-4 group"
+                    >
+                      <div className="w-10 h-10 bg-emerald-50 group-hover:bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 shrink-0">
+                        <Search className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1 min-w-0 font-sans">
+                        <span className="text-xs font-bold block text-natural-dark">Da indirizzo stradale</span>
+                        <span className="text-[10px] text-natural-muted block mt-0.5 font-medium">Inserisci indirizzo e città per trovarlo all&apos;istante.</span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <h2 className="text-xl font-serif font-extrabold tracking-tight text-emerald-700 flex items-center gap-2">
+                      <span>📍</span> Trova Indirizzo
+                    </h2>
+                    <p className="text-xs text-natural-muted mt-1 font-semibold">
+                      Inserisci i dettagli stradali per localizzare il servizio sulla mappa ed attivare la scheda.
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleAddressGeocoding} className="space-y-4">
+                    <div>
+                      <label className="block text-xxs font-bold uppercase text-natural-muted tracking-wider mb-1.5">
+                        Indirizzo e Numero Civico *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={typedAddress}
+                        onChange={(e) => setTypedAddress(e.target.value)}
+                        placeholder="es. Via del Corso 11"
+                        className="w-full text-sm border border-natural-border/70 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition-all bg-white text-natural-dark"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xxs font-bold uppercase text-natural-muted tracking-wider mb-1.5">
+                        Città *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={typedCity}
+                        onChange={(e) => setTypedCity(e.target.value)}
+                        placeholder="es. Roma"
+                        className="w-full text-sm border border-natural-border/70 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition-all bg-white text-natural-dark"
+                      />
+                    </div>
+
+                    {geocodingError && (
+                      <div className="p-3 bg-red-50 rounded-xl text-red-600 text-xxs font-bold leading-normal">
+                        ⚠️ {geocodingError}
+                      </div>
+                    )}
+
+                    <div className="pt-2 flex gap-3 font-sans">
+                      <button
+                        type="button"
+                        onClick={() => setAddMenuStep('selection')}
+                        className="flex-1 py-2.5 border border-natural-border text-natural-dark text-xs font-bold rounded-xl hover:bg-natural-light transition-all cursor-pointer"
+                      >
+                        Indietro
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={geocodingLoading}
+                        className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white text-xs font-bold rounded-xl shadow-md transition-all active:scale-98 cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        {geocodingLoading ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>In corso...</span>
+                          </>
+                        ) : (
+                          <span>Trova ed Inserisci</span>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}
