@@ -244,11 +244,80 @@ export default function FountainMap({
     });
   }, [fountains, osmFountains, selectedFountainId, mapBounds]);
 
-  // --- Handle Geolocation ---
+  // Watch user location continuously to make updates extremely precise, real-time, and fluid
+  const watchIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      console.warn("La geolocalizzazione non è supportata dal tuo browser.");
+      return;
+    }
+
+    const handleNewPosition = (position: GeolocationPosition) => {
+      const { latitude, longitude } = position.coords;
+      
+      setUserLocation({ lat: latitude, lng: longitude });
+
+      if (mapRef.current) {
+        if (userMarkerRef.current) {
+          userMarkerRef.current.setLatLng([latitude, longitude]);
+        } else {
+          const userIcon = L.divIcon({
+            html: `
+              <div class="relative flex items-center justify-center">
+                <div class="absolute w-7 h-7 bg-blue-500 rounded-full opacity-30 animate-ping"></div>
+                <div class="relative w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-lg"></div>
+              </div>
+            `,
+            className: 'user-pulse-marker',
+            iconSize: [28, 28],
+            iconAnchor: [14, 14]
+          });
+
+          userMarkerRef.current = L.marker([latitude, longitude], { icon: userIcon })
+            .addTo(mapRef.current)
+            .bindPopup('<strong class="text-xs text-brand font-bold select-none">La tua posizione</strong>', { offset: [0, -6] });
+        }
+      }
+    };
+
+    const handleError = (error: GeolocationPositionError) => {
+      console.error('Errore watchPosition:', error);
+    };
+
+    // Use watchPosition with high accuracy and low latency (maximumAge: 0)
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      handleNewPosition,
+      handleError,
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      }
+    );
+
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
+  }, [setUserLocation]);
+
+  // --- Handle Geolocation / Map Focus Center ---
   const handleGPSLocation = () => {
     if (!mapRef.current) return;
     setGpsLoading(true);
     setGpsError(null);
+
+    // If we already have the real-time tracked location, pan to it instantly!
+    if (userLocation) {
+      mapRef.current.setView([userLocation.lat, userLocation.lng], 16, {
+        animate: true,
+        duration: 1.2
+      });
+      setGpsLoading(false);
+      return;
+    }
 
     if (!navigator.geolocation) {
       setGpsError('La geolocalizzazione non è supportata dal tuo browser.');
@@ -262,13 +331,13 @@ export default function FountainMap({
         setUserLocation({ lat: latitude, lng: longitude });
         setGpsLoading(false);
 
-        // Pan and Zoom
-        mapRef.current?.setView([latitude, longitude], 15, {
+        // Center on location
+        mapRef.current?.setView([latitude, longitude], 16, {
           animate: true,
           duration: 1.2
         });
 
-        // Add or update live position pulsing marker (using premium blue GPS dot with surrounding pulse glow)
+        // Add/update User marker
         if (userMarkerRef.current) {
           userMarkerRef.current.setLatLng([latitude, longitude]);
         } else {
@@ -290,7 +359,7 @@ export default function FountainMap({
         }
       },
       (error) => {
-        console.error('GPS error:', error);
+        console.error('GPS trigger error:', error);
         setGpsLoading(false);
         if (error.code === error.PERMISSION_DENIED) {
           setGpsError('Permesso di localizzazione negato. Abilita il GPS nelle impostazioni.');
@@ -298,7 +367,7 @@ export default function FountainMap({
           setGpsError('Impossibile rilevare la posizione GPS in questo momento.');
         }
       },
-      { enableHighAccuracy: true, timeout: 8000 }
+      { enableHighAccuracy: true, timeout: 10000 }
     );
   };
 
