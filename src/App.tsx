@@ -810,15 +810,6 @@ export default function App() {
             >
               <HelpCircle className="w-4 h-4 text-brand-light" /> Come funziona?
             </button>
-            <button
-              onClick={() => {
-                setShowAddMenu(true);
-                setAddMenuStep('selection');
-              }}
-              className="px-4 py-2 bg-emerald-600/95 hover:bg-emerald-600 backdrop-blur-md text-white rounded-xl shadow-xl border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all active:scale-95"
-            >
-              <Plus className="w-4 h-4 text-white" /> Aggiungi Servizio
-            </button>
           </div>
         </div>
 
